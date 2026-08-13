@@ -1,0 +1,91 @@
+{
+  "name": "harness-studio",
+  "version": "0.1.0",
+  "description": "A polished macOS desktop client for DeepSeek Harness",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build:app": "electron-vite build",
+    "build": "npm run typecheck && npm run build:app",
+    "typecheck": "tsc --build --pretty false",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "check": "npm run typecheck && npm run test:run && npm run build:app",
+    "postinstall": "electron-builder install-app-deps",
+    "icon": "bash scripts/build-icon.sh",
+    "dist:mac": "npm run check && npm run icon && electron-builder --mac dmg zip --arm64"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "electron": "43.4.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "playwright": "1.62.1",
+    "typescript": "7.0.2",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
+  },
+  "build": {
+    "appId": "com.harnessstudio.desktop",
+    "productName": "Harness Studio",
+    "copyright": "Copyright © 2026 Harness Studio contributors",
+    "asar": false,
+    "files": [
+      "out/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "backgroundColor": "#111318",
+      "iconSize": 112,
+      "window": {
+        "width": 600,
+        "height": 420
+      },
+      "contents": [
+        {
+          "x": 170,
+          "y": 205,
+          "type": "file"
+        },
+        {
+          "x": 430,
+          "y": 205,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}
