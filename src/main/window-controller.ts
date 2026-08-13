@@ -26,6 +26,7 @@ export class WindowController {
   #harnessView: WebContentsView | undefined
   #harnessUrl: string | undefined
   #viewAttached = false
+  #downloadGuardInstalled = false
   #isQuitting = false
   #latestState: EngineState
   #unsubscribeState: (() => void) | undefined
@@ -211,11 +212,18 @@ export class WindowController {
         callback(sameContents && permission === 'clipboard-sanitized-write')
       }
     )
-    contents.session.on('will-download', (event, item) => {
-      if (classifyNavigation(item.getURL(), origin) !== 'internal') {
-        event.preventDefault()
-      }
-    })
+    if (!this.#downloadGuardInstalled) {
+      contents.session.on('will-download', (event, item) => {
+        const activeOrigin = this.#harnessUrl
+        if (
+          !activeOrigin ||
+          classifyNavigation(item.getURL(), activeOrigin) !== 'internal'
+        ) {
+          event.preventDefault()
+        }
+      })
+      this.#downloadGuardInstalled = true
+    }
   }
 
   #layoutHarnessView(): void {

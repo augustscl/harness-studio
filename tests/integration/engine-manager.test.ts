@@ -151,4 +151,22 @@ describe('HarnessEngineManager', () => {
     })
     expect(manager.getState().phase).toBe('failed')
   })
+
+  it('reports an invalid runtime working directory', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'harness-studio-invalid-cwd-'))
+    const invalidManager = new HarnessEngineManager({
+      command: process.execPath,
+      buildArgs: () => [resolve('tests/fixtures/fake-harness.mjs'), '--port', '0'],
+      cwd: resolve(root, 'missing-working-directory'),
+      dataDirectory: resolve(root, 'data-invalid-cwd'),
+      logPath: resolve(root, 'logs/invalid-cwd.log'),
+      startupTimeoutMs: 1_000
+    })
+    managers.push(invalidManager)
+
+    await expect(invalidManager.start()).rejects.toMatchObject({
+      code: 'BIN_NOT_FOUND'
+    })
+    expect(invalidManager.getState().phase).toBe('failed')
+  })
 })

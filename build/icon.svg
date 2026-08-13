@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">Harness Studio application icon</title>
+  <desc id="description">
+    A graphite macOS app tile with two luminous orchestration paths meeting at a central node.
+  </desc>
+
+  <defs>
+    <path
+      id="tile-shape"
+      d="M300 58C199 58 132 70 91 111C51 151 58 216 58 300V700C58 803 71 868 111 909C151 949 219 954 300 954H724C820 954 880 941 918 901C952 865 956 800 956 724V300C956 204 944 144 906 105C868 67 807 58 724 58Z"
+    />
+
+    <linearGradient id="tile" x1="174" y1="94" x2="852" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#30373A" />
+      <stop offset="0.42" stop-color="#171C1F" />
+      <stop offset="1" stop-color="#090C0E" />
+    </linearGradient>
+    <linearGradient id="tile-edge" x1="164" y1="86" x2="868" y2="942" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#667276" stop-opacity="0.72" />
+      <stop offset="0.42" stop-color="#313A3D" stop-opacity="0.42" />
+      <stop offset="1" stop-color="#06090A" stop-opacity="0.86" />
+    </linearGradient>
+    <linearGradient id="route" x1="260" y1="312" x2="764" y2="710" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8AF4DE" />
+      <stop offset="0.46" stop-color="#55D9C4" />
+      <stop offset="1" stop-color="#45AEBE" />
+    </linearGradient>
+    <linearGradient id="route-secondary" x1="276" y1="704" x2="748" y2="322" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#43A9B8" />
+      <stop offset="0.54" stop-color="#61DEC9" />
+      <stop offset="1" stop-color="#91F4DF" />
+    </linearGradient>
+    <linearGradient id="core-face" x1="454" y1="444" x2="580" y2="584" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#263336" />
+      <stop offset="1" stop-color="#0E1517" />
+    </linearGradient>
+    <radialGradient id="atmosphere" cx="0" cy="0" r="1" gradientTransform="translate(514 474) rotate(90) scale(458)">
+      <stop stop-color="#42C7B1" stop-opacity="0.19" />
+      <stop offset="0.48" stop-color="#258D89" stop-opacity="0.06" />
+      <stop offset="1" stop-color="#0B1012" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="node-fill" cx="0" cy="0" r="1" gradientTransform="translate(0.34 0.28) rotate(48) scale(0.88)">
+      <stop stop-color="#D1FFF5" />
+      <stop offset="0.38" stop-color="#72E6D2" />
+      <stop offset="1" stop-color="#2A9FA8" />
+    </radialGradient>
+
+    <filter id="tile-shadow" x="-18%" y="-16%" width="136%" height="148%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="27" stdDeviation="28" flood-color="#020405" flood-opacity="0.48" />
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#020405" flood-opacity="0.42" />
+    </filter>
+    <filter id="route-glow" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="24" />
+    </filter>
+    <filter id="node-glow" x="-80%" y="-80%" width="260%" height="260%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="16" flood-color="#55D9C4" flood-opacity="0.58" />
+    </filter>
+    <clipPath id="tile-clip">
+      <use href="#tile-shape" />
+    </clipPath>
+  </defs>
+
+  <use href="#tile-shape" fill="#0B0E10" filter="url(#tile-shadow)" />
+  <use href="#tile-shape" fill="url(#tile)" />
+
+  <g clip-path="url(#tile-clip)">
+    <ellipse cx="514" cy="474" rx="456" ry="474" fill="url(#atmosphere)" />
+
+    <path
+      d="M96 250C286 103 591 93 920 226"
+      fill="none"
+      stroke="#FFFFFF"
+      stroke-width="22"
+      stroke-linecap="round"
+      opacity="0.045"
+    />
+    <path
+      d="M118 814C330 924 704 950 910 756"
+      fill="none"
+      stroke="#020607"
+      stroke-width="86"
+      stroke-linecap="round"
+      opacity="0.2"
+    />
+
+    <g fill="none" stroke="#9CDDD4" stroke-linecap="round" opacity="0.055">
+      <path d="M173 512H236" stroke-width="4" />
+      <path d="M788 512H851" stroke-width="4" />
+      <path d="M512 172V235" stroke-width="4" />
+      <path d="M512 789V852" stroke-width="4" />
+      <circle cx="512" cy="512" r="300" stroke-width="3" stroke-dasharray="3 26" />
+    </g>
+
+    <g fill="none" stroke="#071012" stroke-width="66" stroke-linecap="round" stroke-linejoin="round" opacity="0.9">
+      <path d="M282 334C398 334 400 451 512 512C624 573 626 690 742 690" />
+      <path d="M282 690C398 690 400 573 512 512C624 451 626 334 742 334" />
+    </g>
+
+    <g fill="none" stroke="#51D8C5" stroke-width="66" stroke-linecap="round" opacity="0.28" filter="url(#route-glow)">
+      <path d="M282 334C398 334 400 451 512 512C624 573 626 690 742 690" />
+      <path d="M282 690C398 690 400 573 512 512C624 451 626 334 742 334" />
+    </g>
+
+    <path
+      d="M282 690C398 690 400 573 512 512C624 451 626 334 742 334"
+      fill="none"
+      stroke="url(#route-secondary)"
+      stroke-width="35"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M282 334C398 334 400 451 512 512C624 573 626 690 742 690"
+      fill="none"
+      stroke="url(#route)"
+      stroke-width="35"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <g aria-hidden="true">
+      <g transform="translate(282 334)">
+        <circle r="51" fill="#10191B" stroke="#79E8D4" stroke-width="9" />
+        <circle r="21" fill="url(#node-fill)" filter="url(#node-glow)" />
+        <circle cx="-7" cy="-8" r="5" fill="#FFFFFF" opacity="0.78" />
+      </g>
+      <g transform="translate(282 690)">
+        <circle r="51" fill="#10191B" stroke="#47B6C2" stroke-width="9" />
+        <circle r="21" fill="url(#node-fill)" filter="url(#node-glow)" />
+        <circle cx="-7" cy="-8" r="5" fill="#FFFFFF" opacity="0.72" />
+      </g>
+      <g transform="translate(742 334)">
+        <circle r="51" fill="#10191B" stroke="#80EAD6" stroke-width="9" />
+        <circle r="21" fill="url(#node-fill)" filter="url(#node-glow)" />
+        <circle cx="-7" cy="-8" r="5" fill="#FFFFFF" opacity="0.78" />
+      </g>
+      <g transform="translate(742 690)">
+        <circle r="51" fill="#10191B" stroke="#49B7C1" stroke-width="9" />
+        <circle r="21" fill="url(#node-fill)" filter="url(#node-glow)" />
+        <circle cx="-7" cy="-8" r="5" fill="#FFFFFF" opacity="0.72" />
+      </g>
+    </g>
+
+    <g aria-hidden="true">
+      <rect
+        x="441"
+        y="441"
+        width="142"
+        height="142"
+        rx="43"
+        fill="#071012"
+        opacity="0.8"
+        transform="rotate(45 512 512)"
+        filter="url(#node-glow)"
+      />
+      <rect
+        x="441"
+        y="441"
+        width="142"
+        height="142"
+        rx="43"
+        fill="url(#core-face)"
+        stroke="#73E5D0"
+        stroke-width="10"
+        transform="rotate(45 512 512)"
+      />
+      <path d="M512 459V486M565 512H538M512 565V538M459 512H486" fill="none" stroke="#56CDBD" stroke-width="11" stroke-linecap="round" />
+      <circle cx="512" cy="512" r="24" fill="url(#node-fill)" />
+      <circle cx="504" cy="503" r="6" fill="#FFFFFF" opacity="0.82" />
+    </g>
+
+    <path
+      d="M204 156C329 101 698 97 833 164"
+      fill="none"
+      stroke="#FFFFFF"
+      stroke-width="8"
+      stroke-linecap="round"
+      opacity="0.085"
+    />
+  </g>
+
+  <use href="#tile-shape" fill="none" stroke="url(#tile-edge)" stroke-width="4" />
+  <path
+    d="M300 73C205 73 143 84 104 122C69 158 73 220 73 300"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="3"
+    stroke-linecap="round"
+    opacity="0.13"
+  />
+</svg>

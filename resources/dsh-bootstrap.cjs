@@ -11,6 +11,7 @@ if (!entrypoint) {
 // Electron consumes this variable before Node starts. Removing it here keeps
 // user commands launched by the agent from mistaking an Electron binary for Node.
 delete process.env.ELECTRON_RUN_AS_NODE
+delete process.env.ELECTRON_RENDERER_URL
 process.argv.splice(1, 2, entrypoint)
 
 import(pathToFileURL(entrypoint).href).catch((error) => {

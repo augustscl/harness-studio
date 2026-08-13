@@ -137,12 +137,23 @@ export class HarnessEngineManager {
       environment.ELECTRON_RUN_AS_NODE = '1'
     }
 
-    const child = spawn(this.#options.command, this.#options.buildArgs(0), {
-      cwd: this.#options.cwd,
-      env: environment,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32'
-    })
+    let child: ChildProcess
+    try {
+      child = spawn(this.#options.command, this.#options.buildArgs(0), {
+        cwd: this.#options.cwd,
+        env: environment,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32'
+      })
+    } catch (error) {
+      const engineError = new HarnessEngineError({
+        code: 'BIN_NOT_FOUND',
+        message: 'The bundled Harness runtime could not be started.',
+        detail: error instanceof Error ? error.message : String(error)
+      })
+      this.#fail(engineError.toFailure())
+      throw engineError
+    }
     this.#child = child
     this.#dispatch({
       type: 'PROGRESS',

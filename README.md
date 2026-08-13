@@ -55,6 +55,7 @@ Harness Studio 是一个面向 macOS 的 DeepSeek Harness 桌面客户端。它�
 ```bash
 npm ci
 npm run check
+npm run test:e2e
 npm run dist:mac
 ```
 

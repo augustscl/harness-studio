@@ -2,6 +2,8 @@
   "name": "harness-studio",
   "version": "0.1.0",
   "description": "A polished macOS desktop client for DeepSeek Harness",
+  "license": "MIT",
+  "author": "Harness Studio contributors",
   "private": true,
   "main": "out/main/index.js",
   "scripts": {
@@ -12,10 +14,14 @@
     "typecheck": "tsc --build --pretty false",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:e2e": "playwright test --config=playwright.config.ts",
     "check": "npm run typecheck && npm run test:run && npm run build:app",
     "postinstall": "electron-builder install-app-deps",
     "icon": "bash scripts/build-icon.sh",
-    "dist:mac": "npm run check && npm run icon && electron-builder --mac dmg zip --arm64"
+    "audit:bundle": "bash scripts/audit-bundle.sh",
+    "smoke:packaged": "bash scripts/smoke-packaged.sh",
+    "manifest": "node scripts/generate-build-manifest.mjs",
+    "dist:mac": "npm run check && npm run test:e2e && npm run icon && electron-builder --mac dmg zip --arm64 && npm run audit:bundle && npm run smoke:packaged && npm run manifest"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.1.0-rc.6"
@@ -38,6 +44,8 @@
     "files": [
       "out/**/*",
       "package.json",
+      "LICENSE",
+      "THIRD_PARTY.md",
       "node_modules/**/*"
     ],
     "extraResources": [
@@ -74,6 +82,8 @@
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "dmg": {
+      "format": "UDZO",
+      "filesystem": "HFS+",
       "backgroundColor": "#111318",
       "iconSize": 112,
       "window": {

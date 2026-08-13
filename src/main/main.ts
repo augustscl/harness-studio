@@ -25,6 +25,7 @@ if (!hasSingleInstanceLock) app.quit()
 let controller: WindowController | undefined
 let engine: HarnessEngineManager | undefined
 let allowQuit = false
+let quitRequested = false
 let logPath = ''
 let dataDirectory = ''
 
@@ -116,6 +117,7 @@ async function bootApplication(): Promise<void> {
   registerIpcHandlers()
   installApplicationMenu(controller)
   await controller.create()
+  if (quitRequested) return
   void engine.start().catch(() => undefined)
 }
 
@@ -128,12 +130,16 @@ app.on('activate', () => {
 app.on('before-quit', (event) => {
   if (allowQuit) return
   event.preventDefault()
-  allowQuit = true
+  if (quitRequested) return
+  quitRequested = true
   controller?.setQuitting(true)
   const stopEngine = engine?.stop() ?? Promise.resolve()
   void stopEngine
     .catch(() => undefined)
-    .finally(() => app.quit())
+    .finally(() => {
+      allowQuit = true
+      app.quit()
+    })
 })
 
 app.on('window-all-closed', () => {
