@@ -13,6 +13,8 @@ test -f "$app_path/Contents/Resources/runtime/dsh-bootstrap.cjs"
 test -f "$runtime_root/LICENSE"
 test -f "$runtime_root/THIRD_PARTY.md"
 
+node scripts/audit-runtime-closure.mjs "$app_path"
+
 bundle_id="$(plutil -extract CFBundleIdentifier raw "$info_plist")"
 minimum_system="$(plutil -extract LSMinimumSystemVersion raw "$info_plist")"
 test "$bundle_id" = "com.harnessstudio.desktop"

@@ -65,6 +65,7 @@ npm run dist:mac
 
 - Electron `43.4.0`（内置 Node `24.18.1`）
 - `@deepseek-ai/dsh@0.1.0-rc.6`
+- 当前 Harness 的必需 peer dependencies 作为精确版本运行时闭包随包固定，并在发布时递归审计
 - Harness 由 Electron 的 Node 模式启动，并使用 `--expose-internals` 满足当前 HMR 运行时要求
 - 官方完整就绪行与首页启动标记共同作为健康判据
 - 主页面使用隔离的 `WebContentsView`；Node integration 关闭、context isolation 与 sandbox 开启
