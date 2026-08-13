@@ -12,7 +12,11 @@ afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.stop()))
 })
 
-async function createManager(mode = 'ready', startupTimeoutMs = 3_000) {
+async function createManager(
+  mode = 'ready',
+  startupTimeoutMs = 3_000,
+  overrides: Partial<ConstructorParameters<typeof HarnessEngineManager>[0]> = {}
+) {
   const root = await mkdtemp(resolve(tmpdir(), 'harness-studio-test-'))
   const manager = new HarnessEngineManager({
     command: process.execPath,
@@ -28,7 +32,8 @@ async function createManager(mode = 'ready', startupTimeoutMs = 3_000) {
     healthPollMs: 30,
     environment: {
       FAKE_HARNESS_MODE: mode
-    }
+    },
+    ...overrides
   })
   managers.push(manager)
   return { manager, root }
@@ -45,7 +50,8 @@ describe('HarnessEngineManager', () => {
     await expect(fetch(state.url!)).resolves.toMatchObject({ status: 200 })
 
     const log = await readFile(resolve(root, 'logs/engine.log'), 'utf8')
-    expect(log).toContain('fake harness ready')
+    expect(log).toMatch(/dsh web: http:\/\/127\.0\.0\.1:\d+/u)
+    expect(log).toContain(`fake harness home: ${resolve(root, 'data')}`)
   })
 
   it('reports a process that exits before becoming ready', async () => {
@@ -92,5 +98,57 @@ describe('HarnessEngineManager', () => {
     ])
 
     expect(first.pid).toBe(second.pid)
+  })
+
+  it('does not report ready without the Harness boot marker', async () => {
+    const { manager } = await createManager('no-marker', 220)
+
+    await expect(manager.start()).rejects.toMatchObject({
+      code: 'START_TIMEOUT'
+    })
+  })
+
+  it('moves to failed if the ready process later crashes', async () => {
+    const { manager } = await createManager('crash-after-ready')
+    await manager.start()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    expect(manager.getState()).toMatchObject({
+      phase: 'failed',
+      failure: { code: 'PROCESS_EXITED' }
+    })
+  })
+
+  it('can stop while startup is still in progress', async () => {
+    const { manager } = await createManager('delay')
+    const starting = manager.start()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    await manager.stop()
+
+    await expect(starting).rejects.toMatchObject({ code: 'PROCESS_EXITED' })
+    expect(manager.getState().phase).toBe('idle')
+  })
+
+  it('force stops an engine that ignores SIGTERM', async () => {
+    const { manager } = await createManager('ignore-term', 3_000, {
+      stopGraceMs: 80
+    })
+    await manager.start()
+    const before = Date.now()
+    await manager.stop()
+
+    expect(Date.now() - before).toBeLessThan(1_000)
+    expect(manager.getState().phase).toBe('idle')
+  })
+
+  it('reports a missing runtime binary', async () => {
+    const { manager } = await createManager('ready', 1_000, {
+      command: resolve(tmpdir(), 'definitely-missing-harness-runtime')
+    })
+
+    await expect(manager.start()).rejects.toMatchObject({
+      code: 'BIN_NOT_FOUND'
+    })
+    expect(manager.getState().phase).toBe('failed')
   })
 })

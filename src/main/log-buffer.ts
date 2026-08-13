@@ -1,5 +1,8 @@
+import { StringDecoder } from 'node:string_decoder'
+
 export class LogBuffer {
   readonly #limit: number
+  readonly #decoder = new StringDecoder('utf8')
   #completed: string[] = []
   #partial = ''
 
@@ -12,7 +15,7 @@ export class LogBuffer {
 
   append(chunk: string | Uint8Array): void {
     const text =
-      typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')
+      typeof chunk === 'string' ? chunk : this.#decoder.write(Buffer.from(chunk))
     const pieces = `${this.#partial}${text}`.split(/\r?\n/u)
     this.#partial = pieces.pop() ?? ''
     this.#completed.push(...pieces)

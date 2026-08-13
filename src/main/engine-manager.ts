@@ -1,6 +1,9 @@
 import {
   appendFileSync,
-  mkdirSync
+  chmodSync,
+  mkdirSync,
+  renameSync,
+  statSync
 } from 'node:fs'
 import { dirname } from 'node:path'
 import {
@@ -17,7 +20,7 @@ import {
   transitionEngineState
 } from './engine-state'
 import { LogBuffer } from './log-buffer'
-import { findAvailablePort } from './port'
+import { ReadyUrlParser } from './ready-url-parser'
 
 export interface HarnessEngineManagerOptions {
   command: string
@@ -27,6 +30,9 @@ export interface HarnessEngineManagerOptions {
   logPath: string
   startupTimeoutMs?: number
   healthPollMs?: number
+  startupStabilityMs?: number
+  stopGraceMs?: number
+  healthMarker?: string | false
   environment?: NodeJS.ProcessEnv
   electronRunAsNode?: boolean
 }
@@ -55,17 +61,19 @@ type StateListener = (state: EngineState) => void
 
 const DEFAULT_START_TIMEOUT_MS = 45_000
 const DEFAULT_HEALTH_POLL_MS = 180
-const STOP_GRACE_MS = 3_000
+const DEFAULT_STABILITY_MS = 250
+const STOP_GRACE_MS = 7_000
+const MAX_LOG_BYTES = 5 * 1024 * 1024
 
 export class HarnessEngineManager {
   readonly #options: HarnessEngineManagerOptions
   readonly #logs = new LogBuffer()
   readonly #listeners = new Set<StateListener>()
+  readonly #expectedExits = new WeakSet<ChildProcess>()
   #state = createInitialEngineState()
   #child: ChildProcess | undefined
   #startPromise: Promise<EngineState> | undefined
   #stopPromise: Promise<void> | undefined
-  #expectedExit = false
 
   constructor(options: HarnessEngineManagerOptions) {
     this.#options = options
@@ -115,22 +123,11 @@ export class HarnessEngineManager {
 
   async #performStart(): Promise<EngineState> {
     this.#dispatch({ type: 'START', stage: 'preparing-runtime' })
-    mkdirSync(this.#options.dataDirectory, { recursive: true })
-    mkdirSync(dirname(this.#options.logPath), { recursive: true })
+    mkdirSync(this.#options.dataDirectory, { recursive: true, mode: 0o700 })
+    chmodSync(this.#options.dataDirectory, 0o700)
+    mkdirSync(dirname(this.#options.logPath), { recursive: true, mode: 0o700 })
+    this.#rotateLogIfNeeded()
     this.#writeLog(`\n[studio] starting engine at ${new Date().toISOString()}\n`)
-
-    let port: number
-    try {
-      port = await findAvailablePort()
-    } catch (error) {
-      throw this.#fail({
-        code: 'PORT_UNAVAILABLE',
-        message: 'Harness Studio could not reserve a local port.',
-        detail: error instanceof Error ? error.message : String(error)
-      })
-    }
-
-    const url = `http://127.0.0.1:${port}`
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
       ...this.#options.environment,
@@ -140,8 +137,7 @@ export class HarnessEngineManager {
       environment.ELECTRON_RUN_AS_NODE = '1'
     }
 
-    this.#expectedExit = false
-    const child = spawn(this.#options.command, this.#options.buildArgs(port), {
+    const child = spawn(this.#options.command, this.#options.buildArgs(0), {
       cwd: this.#options.cwd,
       env: environment,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -154,12 +150,21 @@ export class HarnessEngineManager {
       ...(child.pid === undefined ? {} : { pid: child.pid })
     })
 
-    child.stdout?.on('data', (chunk: Buffer) => this.#captureLog(chunk))
+    const readyParser = new ReadyUrlParser()
+    let resolveReadyUrl: (url: string) => void
+    const readyUrl = new Promise<string>((resolve) => {
+      resolveReadyUrl = resolve
+    })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      this.#captureLog(chunk)
+      const parsed = readyParser.push(chunk)
+      if (parsed) resolveReadyUrl(parsed)
+    })
     child.stderr?.on('data', (chunk: Buffer) => this.#captureLog(chunk))
 
-    const processEnded = new Promise<HarnessEngineError>((resolve) => {
+    const processEnded = new Promise<never>((_resolve, reject) => {
       child.once('error', (error) => {
-        resolve(
+        reject(
           new HarnessEngineError({
             code: 'BIN_NOT_FOUND',
             message: 'The bundled Harness runtime could not be started.',
@@ -168,31 +173,30 @@ export class HarnessEngineManager {
         )
       })
       child.once('exit', (code, signal) => {
-        if (!this.#expectedExit) {
-          const engineError = new HarnessEngineError({
-            code: 'PROCESS_EXITED',
-            message: 'Harness stopped before its interface was ready.',
-            detail: `exit code ${String(code)}, signal ${String(signal)}`
-          })
+        const wasReady = this.#state.phase === 'ready'
+        const engineError = new HarnessEngineError({
+          code: 'PROCESS_EXITED',
+          message: wasReady
+            ? 'Harness stopped unexpectedly.'
+            : 'Harness stopped before its interface was ready.',
+          detail: `exit code ${String(code)}, signal ${String(signal)}`
+        })
+        if (!this.#expectedExits.has(child)) {
           if (this.#state.phase === 'starting' || this.#state.phase === 'ready') {
             this.#fail(engineError.toFailure())
           }
-          resolve(engineError)
+          if (this.#child === child) this.#child = undefined
         }
+        reject(engineError)
       })
     })
 
-    this.#dispatch({
-      type: 'PROGRESS',
-      stage: 'connecting-interface',
-      ...(child.pid === undefined ? {} : { pid: child.pid })
-    })
-
+    let url: string
     try {
-      await Promise.race([
-        this.#waitUntilHealthy(url),
-        processEnded.then((error) => Promise.reject(error))
-      ])
+      url = await this.#waitForStartup(
+        this.#completeStartup(readyUrl, child),
+        processEnded
+      )
     } catch (error) {
       const engineError =
         error instanceof HarnessEngineError
@@ -203,7 +207,7 @@ export class HarnessEngineManager {
               detail: error instanceof Error ? error.message : String(error)
             })
       if (this.#state.phase === 'starting') this.#fail(engineError.toFailure())
-      this.#expectedExit = true
+      this.#expectedExits.add(child)
       await this.#terminateChild(child)
       if (this.#child === child) this.#child = undefined
       throw engineError
@@ -230,14 +234,69 @@ export class HarnessEngineManager {
   async #performStop(): Promise<void> {
     const child = this.#child
     if (!child) return
-    this.#expectedExit = true
+    const pendingStart = this.#startPromise
+    this.#expectedExits.add(child)
 
     if (this.#state.phase === 'starting' || this.#state.phase === 'ready') {
       this.#dispatch({ type: 'STOP' })
     }
     await this.#terminateChild(child)
+    await pendingStart?.catch(() => undefined)
     if (this.#child === child) this.#child = undefined
     if (this.#state.phase === 'stopping') this.#dispatch({ type: 'STOPPED' })
+  }
+
+  async #completeStartup(
+    readyUrl: Promise<string>,
+    child: ChildProcess
+  ): Promise<string> {
+    const url = await readyUrl
+    this.#dispatch({
+      type: 'PROGRESS',
+      stage: 'connecting-interface',
+      ...(child.pid === undefined ? {} : { pid: child.pid })
+    })
+    await this.#waitUntilHealthy(url)
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        this.#options.startupStabilityMs ?? DEFAULT_STABILITY_MS
+      )
+    )
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new HarnessEngineError({
+        code: 'PROCESS_EXITED',
+        message: 'Harness stopped immediately after becoming ready.'
+      })
+    }
+    return url
+  }
+
+  async #waitForStartup(
+    startup: Promise<string>,
+    processEnded: Promise<never>
+  ): Promise<string> {
+    const timeoutMs =
+      this.#options.startupTimeoutMs ?? DEFAULT_START_TIMEOUT_MS
+    let timeout: NodeJS.Timeout | undefined
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(
+        () =>
+          reject(
+            new HarnessEngineError({
+              code: 'START_TIMEOUT',
+              message: 'Harness took too long to start.',
+              detail: `No ready signal within ${timeoutMs}ms`
+            })
+          ),
+        timeoutMs
+      )
+    })
+    try {
+      return await Promise.race([startup, processEnded, timedOut])
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
   }
 
   async #waitUntilHealthy(url: string): Promise<void> {
@@ -251,7 +310,13 @@ export class HarnessEngineManager {
         const response = await fetch(url, {
           signal: AbortSignal.timeout(Math.min(1_000, pollMs * 3))
         })
-        if (response.ok) return
+        if (response.ok) {
+          const marker =
+            this.#options.healthMarker === undefined
+              ? 'window.__DSH_BOOT__'
+              : this.#options.healthMarker
+          if (marker === false || (await response.text()).includes(marker)) return
+        }
       } catch {
         // The server normally refuses connections while its plugins load.
       }
@@ -267,12 +332,15 @@ export class HarnessEngineManager {
 
   async #terminateChild(child: ChildProcess): Promise<void> {
     if (child.exitCode !== null || child.signalCode !== null) return
-    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+    const exited = new Promise<void>((resolve) => child.once('close', () => resolve()))
     this.#signalChild(child, 'SIGTERM')
     const graceful = await Promise.race([
       exited.then(() => true),
       new Promise<boolean>((resolve) =>
-        setTimeout(() => resolve(false), STOP_GRACE_MS)
+        setTimeout(
+          () => resolve(false),
+          this.#options.stopGraceMs ?? STOP_GRACE_MS
+        )
       )
     ])
     if (!graceful) {
@@ -300,7 +368,16 @@ export class HarnessEngineManager {
   }
 
   #writeLog(chunk: string | Buffer): void {
-    appendFileSync(this.#options.logPath, chunk)
+    appendFileSync(this.#options.logPath, chunk, { mode: 0o600 })
+  }
+
+  #rotateLogIfNeeded(): void {
+    try {
+      if (statSync(this.#options.logPath).size < MAX_LOG_BYTES) return
+      renameSync(this.#options.logPath, `${this.#options.logPath}.previous`)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
   }
 
   #fail(failure: EngineFailure): HarnessEngineError {

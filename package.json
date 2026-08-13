@@ -40,6 +40,12 @@
       "package.json",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/dsh-bootstrap.cjs",
+        "to": "runtime/dsh-bootstrap.cjs"
+      }
+    ],
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -48,6 +54,7 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "identity": null,
+      "minimumSystemVersion": "12.0",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "target": [

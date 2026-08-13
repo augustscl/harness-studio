@@ -18,4 +18,13 @@ describe('LogBuffer', () => {
 
     expect(buffer.lines()).toEqual(['hello', 'world'])
   })
+
+  it('preserves a UTF-8 character split across byte chunks', () => {
+    const buffer = new LogBuffer(10)
+    const bytes = Buffer.from('你好\n')
+    buffer.append(bytes.subarray(0, 2))
+    buffer.append(bytes.subarray(2))
+
+    expect(buffer.lines()).toEqual(['你好'])
+  })
 })
