@@ -2,7 +2,7 @@
 set -euo pipefail
 
 app_path="${1:-release/mac-arm64/Harness Studio.app}"
-app_path="$(cd "$(dirname "$app_path")" && pwd)/$(basename "$app_path")"
+app_path="$(cd -P "$(dirname "$app_path")" && pwd -P)/$(basename "$app_path")"
 app_executable="$app_path/Contents/MacOS/Harness Studio"
 runtime_modules="$app_path/Contents/Resources/app/node_modules"
 smoke_root="$(mktemp -d /tmp/harness-studio-packaged-smoke.XXXXXX)"
