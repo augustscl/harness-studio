@@ -22,7 +22,7 @@
     "smoke:packaged": "bash scripts/smoke-packaged.sh",
     "manifest": "node scripts/generate-build-manifest.mjs",
     "dist:mac": "npm run check && npm run test:e2e && npm run icon && electron-builder --mac dmg zip --arm64 && npm run audit:bundle && npm run smoke:packaged && npm run manifest",
-    "dist:win": "npm run build:app && electron-builder --win nsis --x64"
+    "dist:win": "npm run build:app && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-group": "1.0.1",
