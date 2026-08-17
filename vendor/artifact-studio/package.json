@@ -1,0 +1,31 @@
+{
+  "name": "@harness/artifact-studio",
+  "version": "0.1.0",
+  "description": "In-box artifact studio for the DeepSeek Harness web GUI: browse produced files in the session workspace, edit HTML/Markdown with live preview, preview PDF/images, and read DOCX via a dependency-free parser.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./lib/client.js"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

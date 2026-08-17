@@ -39,6 +39,7 @@ export class WindowController {
   async create(): Promise<BrowserWindow> {
     if (this.#window && !this.#window.isDestroyed()) return this.#window
 
+    const isMac = process.platform === 'darwin'
     const window = new BrowserWindow({
       width: 1220,
       height: 820,
@@ -46,10 +47,21 @@ export class WindowController {
       minHeight: 620,
       show: false,
       title: 'Harness Studio',
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 18, y: 18 },
-      vibrancy: 'under-window',
-      visualEffectState: 'active',
+      ...(isMac
+        ? {
+            titleBarStyle: 'hiddenInset',
+            trafficLightPosition: { x: 18, y: 18 },
+            vibrancy: 'under-window',
+            visualEffectState: 'active'
+          }
+        : {
+            titleBarStyle: 'hidden',
+            titleBarOverlay: {
+              color: '#111318',
+              symbolColor: '#9aa0a6',
+              height: 40
+            }
+          }),
       backgroundColor: '#111318',
       webPreferences: {
         preload: this.#options.preloadPath,

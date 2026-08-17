@@ -6,17 +6,20 @@ export function installApplicationMenu(controller: WindowController): void {
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
+      submenu:
+        process.platform === 'darwin'
+          ? [
+              { role: 'about' },
+              { type: 'separator' },
+              { role: 'services' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' }
+            ]
+          : [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }]
     },
     {
       label: 'Edit',

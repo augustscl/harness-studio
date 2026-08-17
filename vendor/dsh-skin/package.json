@@ -1,0 +1,33 @@
+{
+  "name": "@harness/dsh-skin",
+  "version": "0.1.0",
+  "description": "In-box skin engine for the DeepSeek Harness web GUI: 🎨 quick-switch menu, image-to-theme Dream generator (palette extraction + banner artwork), and durable skin storage under $DSH_HOME/skins.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./lib/client.js"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ]
+    }
+  }
+}

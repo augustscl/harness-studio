@@ -33,6 +33,11 @@ export function extractPathFromNullEnvironment(output: string): string | undefin
 }
 
 export async function resolveLoginShellPath(): Promise<string> {
+  // Windows has no login-shell PATH dance: the process PATH already carries
+  // the user environment (pnpm, git, PowerShell tools included).
+  if (process.platform === 'win32') {
+    return process.env.PATH ?? ''
+  }
   const configuredShell = process.env.SHELL
   const shell =
     configuredShell?.startsWith('/') && configuredShell.length < 512

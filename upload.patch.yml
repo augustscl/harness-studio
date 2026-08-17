@@ -1,0 +1,14 @@
+# In-box plugins for Harness Studio.
+# Applied by the desktop shell via `dsh web --patch <this file>`; packages
+# live beside this file under node_modules/@harness/.
+- insert:
+    - id: file-upload
+      name: '@harness/file-upload'
+    - id: dsh-skin
+      name: '@harness/dsh-skin'
+    - id: artifact-studio
+      name: '@harness/artifact-studio'
+    - id: studio-ux
+      name: '@harness/studio-ux'
+    - id: dsh-market
+      name: 'dshmarket'

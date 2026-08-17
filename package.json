@@ -16,12 +16,13 @@
     "test:run": "vitest run",
     "test:e2e": "playwright test --config=playwright.config.ts",
     "check": "npm run typecheck && npm run test:run && npm run build:app",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/prepare-plugins.mjs && electron-builder install-app-deps",
     "icon": "bash scripts/build-icon.sh",
     "audit:bundle": "bash scripts/audit-bundle.sh",
     "smoke:packaged": "bash scripts/smoke-packaged.sh",
     "manifest": "node scripts/generate-build-manifest.mjs",
-    "dist:mac": "npm run check && npm run test:e2e && npm run icon && electron-builder --mac dmg zip --arm64 && npm run audit:bundle && npm run smoke:packaged && npm run manifest"
+    "dist:mac": "npm run check && npm run test:e2e && npm run icon && electron-builder --mac dmg zip --arm64 && npm run audit:bundle && npm run smoke:packaged && npm run manifest",
+    "dist:win": "npm run build:app && electron-builder --win nsis --x64"
   },
   "dependencies": {
     "@deepseek-ai/cordis-plugin-group": "1.0.1",
@@ -43,7 +44,12 @@
     "@deepseek-ai/dsh-subprocess": "0.1.0-rc.6",
     "@deepseek-ai/dsh-timeout": "0.1.0-rc.6",
     "@deepseek-ai/dsh-workflow": "0.1.0-rc.6",
-    "@deepseek-ai/dsh": "0.1.0-rc.6"
+    "@deepseek-ai/dsh": "0.1.0-rc.6",
+    "@harness/file-upload": "file:vendor/file-upload",
+    "@harness/dsh-skin": "file:vendor/dsh-skin",
+    "@harness/artifact-studio": "file:vendor/artifact-studio",
+    "@harness/studio-ux": "file:vendor/studio-ux",
+    "dshmarket": "file:vendor/dshmarket"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
@@ -122,6 +128,28 @@
           "path": "/Applications"
         }
       ]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
+  },
+  "optionalDependencies": {
+    "node-addon-require-builtin-win32-x64-msvc": "0.1.4"
   }
 }

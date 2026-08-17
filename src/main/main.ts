@@ -83,6 +83,7 @@ async function bootApplication(): Promise<void> {
     ? join(process.resourcesPath, 'runtime', 'dsh-bootstrap.cjs')
     : join(appRoot, 'resources', 'dsh-bootstrap.cjs')
   const resolvedPath = await resolveLoginShellPath()
+  const patchPath = join(appRoot, 'upload.patch.yml')
 
   engine = new HarnessEngineManager({
     command: process.execPath,
@@ -91,6 +92,10 @@ async function bootApplication(): Promise<void> {
       bootstrapPath,
       dshEntrypoint,
       'web',
+      // --patch 必须位于 --host 之前：dsh web 只解析自身选项，
+      // 遇到透传参数后会把其后所有参数原样传给内层应用。
+      '--patch',
+      patchPath,
       '--host',
       '127.0.0.1',
       '--port',
