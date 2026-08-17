@@ -30,6 +30,21 @@
 | v0.1.1 | 2026-08-14 | 文件上传入口（含预设图片） |
 | v0.1.0 | 2026-08-13 | 第一版：设计→骨架→引擎→桌面壳→发布验证 |
 
+## Windows 版
+
+macOS 之外，Windows（x64）版通过 GitHub Actions 构建（node-pty 需要在
+Windows 上原生编译，Mac 上无法交叉构建）：
+
+1. 打开仓库的 [Actions](https://github.com/augustscl/harness-studio/actions) 页面
+2. 左侧选 **build-windows** → 右侧 **Run workflow** 手动触发
+3. 几分钟后构建完成，在运行页底部的 Artifacts 下载
+   `harness-studio-windows-x64`，解压即得 NSIS 安装包（exe）
+
+Windows 版功能与 macOS 版一致（上传/皮肤/产物工坊/新手引导/插件市场）。
+注意：exe 未签名，SmartScreen 会提示"未知发布者"，需点「更多信息 → 仍要
+运行」；正式分发建议配置代码签名证书。详细构建与验证清单见
+[WINDOWS.md](WINDOWS.md)。
+
 ## 安装
 
 1. 双击 dmg，把 `Harness Studio.app` 拖进"应用程序"。
