@@ -33,12 +33,15 @@ function tarBinary() {
 
 function run(cmd, args, cwd) {
   const r = spawnSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-  if (r.status !== 0) {
-    const detail = (r.stderr?.toString() || r.stdout?.toString() || '').slice(0, 400)
+  if (r.error || r.status !== 0) {
+    const detail = (r.error?.message || r.stderr?.toString() || r.stdout?.toString() || '').slice(0, 400)
     throw new Error(`${cmd} ${args.join(' ')} 失败: ${detail}`)
   }
   return r
 }
+
+// Windows 上 spawnSync 无法直接执行 .cmd 垫片（ENOENT），必须带扩展名。
+const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
 const art = artifactFor()
 const runtimeRoot = path.join(projectRoot, 'resources', 'runtime', 'pnpm')
@@ -58,8 +61,8 @@ rmSync(tmp, { recursive: true, force: true })
 mkdirSync(tmp, { recursive: true })
 mkdirSync(runtimeRoot, { recursive: true })
 try {
-  run('npm', ['pack', `${art.pkg}@${VERSION}`, '--silent'], tmp)
-  run('npm', ['pack', `pnpm@${VERSION}`, '--silent'], tmp)
+  run(npmCmd, ['pack', `${art.pkg}@${VERSION}`, '--silent'], tmp)
+  run(npmCmd, ['pack', `pnpm@${VERSION}`, '--silent'], tmp)
   const tgz = (name) => path.join(tmp, `${name}-${VERSION}.tgz`)
   run(tarBinary(), ['-xzf', tgz(art.pkg.replace(/^@/, '').replace('/', '-'))], tmp)
   run(tarBinary(), ['-xzf', tgz('pnpm')], tmp)
