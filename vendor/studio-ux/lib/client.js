@@ -54,6 +54,9 @@ window.__ModuleLoader__.load({
 .wiz-label{display:block;font-size:12px;color:var(--dsw-alias-label-secondary);margin:10px 0 4px}
 .wiz-input{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 10px;font-size:13px;outline:none}
 .wiz-input:focus{border-color:var(--dsw-alias-brand-primary)}
+.wiz-model-row{display:flex;gap:8px;align-items:center}
+.wiz-model-row .wiz-input{flex:1}
+.wiz-probe{white-space:nowrap;flex:none;padding:7px 12px}
 .wiz-note{font-size:11.5px;color:var(--dsw-alias-label-tertiary);line-height:1.6;margin:10px 0 0}
 `;
 		const CSS_ID = "@harness/studio-ux/styles";
@@ -268,7 +271,10 @@ window.__ModuleLoader__.load({
 			{ route: "mistral", name: "Mistral AI", protocol: "openai-completions", baseURL: "https://api.mistral.ai/v1", model: "mistral-large-latest" },
 			{ route: "openrouter", name: "OpenRouter", protocol: "openai-completions", baseURL: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
 			{ route: "groq", name: "Groq", protocol: "openai-completions", baseURL: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
-			{ route: "together", name: "Together AI", protocol: "openai-completions", baseURL: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" }
+			{ route: "together", name: "Together AI", protocol: "openai-completions", baseURL: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+			{ route: "lm-studio", name: "LM Studio（本地）", protocol: "openai-completions", baseURL: "http://localhost:1234/v1", model: "", local: true },
+			{ route: "ollama", name: "Ollama（本地）", protocol: "openai-completions", baseURL: "http://127.0.0.1:11434/v1", model: "", local: true },
+			{ route: "openai-compatible", name: "自定义（OpenAI 兼容）", protocol: "openai-completions", baseURL: "http://localhost:8000/v1", model: "", local: true }
 		];
 
 		function ModelWizardStep({ complete, t }) {
@@ -277,6 +283,8 @@ window.__ModuleLoader__.load({
 			const [modelId, setModelId] = react.useState(PROVIDERS[0].model);
 			const [apiKey, setApiKey] = react.useState("");
 			const [busy, setBusy] = react.useState(false);
+			const [probing, setProbing] = react.useState(false);
+			const [probeModels, setProbeModels] = react.useState([]);
 			const [error, setError] = react.useState(null);
 			const finishedRef = react.useRef(false);
 			const finish = react.useCallback(() => {
@@ -288,12 +296,38 @@ window.__ModuleLoader__.load({
 				setProviderIdx(index);
 				setBaseURL(PROVIDERS[index].baseURL);
 				setModelId(PROVIDERS[index].model);
+				setProbeModels([]);
 				setError(null);
+			};
+			const probeLocal = async () => {
+				if (probing) return;
+				setProbing(true);
+				setError(null);
+				try {
+					const res = await fetch(`${baseURL.replace(/\/+$/, "")}/models`);
+					const body = await res.json();
+					const list = Array.isArray(body?.data) ? body.data.map((m) => typeof m?.id === "string" ? m.id : null).filter(Boolean) : [];
+					if (list.length === 0) {
+						setError(t("wizard.probeEmpty"));
+					} else {
+						setProbeModels(list);
+						if (modelId === "") setModelId(list[0]);
+					}
+				} catch (err) {
+					setError(t("wizard.probeFail") + (err instanceof Error ? err.message : String(err)));
+				} finally {
+					setProbing(false);
+				}
 			};
 			const save = async () => {
 				if (busy) return;
-				if (apiKey.trim() === "") {
+				const provider = PROVIDERS[providerIdx];
+				if (!provider.local && apiKey.trim() === "") {
 					setError(t("wizard.keyRequired"));
+					return;
+				}
+				if (modelId.trim() === "") {
+					setError(t("wizard.modelRequired"));
 					return;
 				}
 				setBusy(true);
@@ -338,19 +372,45 @@ window.__ModuleLoader__.load({
 							onChange: (event) => pickProvider(Number(event.target.value)),
 							children: PROVIDERS.map((provider, index) => jsxRuntime.jsx("option", { value: index, children: provider.name }, provider.route))
 						}),
-						jsxRuntime.jsx("label", { className: "wiz-label", children: t("wizard.key") }),
-						jsxRuntime.jsx("input", {
-							className: "wiz-input",
-							type: "password",
-							value: apiKey,
-							placeholder: "sk-…",
-							onChange: (event) => setApiKey(event.target.value),
-							autoFocus: true
-						}),
+						...(PROVIDERS[providerIdx].local ? [] : [
+							jsxRuntime.jsx("label", { className: "wiz-label", children: t("wizard.key") }),
+							jsxRuntime.jsx("input", {
+								className: "wiz-input",
+								type: "password",
+								value: apiKey,
+								placeholder: "sk-…",
+								onChange: (event) => setApiKey(event.target.value),
+								autoFocus: true
+							})
+						]),
 						jsxRuntime.jsx("label", { className: "wiz-label", children: t("wizard.baseURL") }),
 						jsxRuntime.jsx("input", { className: "wiz-input", value: baseURL, onChange: (event) => setBaseURL(event.target.value) }),
 						jsxRuntime.jsx("label", { className: "wiz-label", children: t("wizard.model") }),
-						jsxRuntime.jsx("input", { className: "wiz-input", value: modelId, onChange: (event) => setModelId(event.target.value) }),
+						jsxRuntime.jsxs("div", {
+							className: "wiz-model-row",
+							children: [
+								jsxRuntime.jsx("input", {
+									className: "wiz-input",
+									list: "studio-local-models",
+									value: modelId,
+									onChange: (event) => setModelId(event.target.value)
+								}),
+								jsxRuntime.jsx("datalist", {
+									id: "studio-local-models",
+									children: probeModels.map((m) => jsxRuntime.jsx("option", { value: m }, m))
+								}),
+								...(PROVIDERS[providerIdx].local ? [
+									jsxRuntime.jsx("button", {
+										type: "button",
+										className: "guide-btn-ghost guide-btn wiz-probe",
+										onClick: () => void probeLocal(),
+										disabled: probing,
+										children: probing ? t("wizard.probing") : t("wizard.probe")
+									})
+								] : [])
+							]
+						}),
+						...(PROVIDERS[providerIdx].local ? [jsxRuntime.jsx("p", { className: "wiz-note", children: t("wizard.localHint") })] : []),
 						jsxRuntime.jsx("p", { className: "wiz-note", children: t("wizard.note") }),
 						error !== null ? jsxRuntime.jsx("p", { className: "as-err", role: "alert", children: error }) : null,
 						jsxRuntime.jsxs("div", {
@@ -387,16 +447,22 @@ window.__ModuleLoader__.load({
 			"guide.close": "关闭",
 			"guide.help": "使用帮助",
 			"wizard.title": "选择模型供应商",
-			"wizard.sub": "支持 11 家主流供应商（OpenAI / Claude / Gemini / Grok / Kimi / MiniMax / 智谱 / Mistral / OpenRouter / Groq / Together）。Key 只保存在本机凭证库，接口地址和模型可改。",
+			"wizard.sub": "支持 11 家主流云供应商（OpenAI / Claude / Gemini / Grok / Kimi / MiniMax / 智谱 / Mistral / OpenRouter / Groq / Together）+ 本地模型（LM Studio / Ollama / 自定义 OpenAI 兼容）。Key 只保存在本机凭证库，接口地址和模型可改。",
 			"wizard.provider": "供应商",
 			"wizard.key": "API Key",
 			"wizard.baseURL": "接口地址（可改）",
 			"wizard.model": "模型 ID（可改）",
+			"wizard.probe": "读取模型列表",
+			"wizard.probing": "读取中…",
+			"wizard.probeEmpty": "服务已连接，但没有找到已加载的模型。请先在 LM Studio / Ollama 里加载或拉取一个模型。",
+			"wizard.probeFail": "无法连接本地服务，请确认 LM Studio / Ollama 已启动并开启了本地服务，或手动填写模型 ID。",
+			"wizard.localHint": "本地模型不需要 API Key。点击「读取模型列表」可以从运行中的 LM Studio / Ollama 自动拉取模型 ID。",
 			"wizard.note": "保存后会写入模型设置并设为当前会话默认模型。之后可随时在 设置 → Models 里修改。",
 			"wizard.save": "保存并使用",
 			"wizard.saving": "保存中…",
 			"wizard.skip": "跳过",
-			"wizard.keyRequired": "请先填写 API Key"
+			"wizard.keyRequired": "请先填写 API Key",
+			"wizard.modelRequired": "请填写或选择模型 ID"
 		};
 		const en = {
 			"strip.running": "Running",
@@ -419,16 +485,22 @@ window.__ModuleLoader__.load({
 			"guide.close": "Close",
 			"guide.help": "Help",
 			"wizard.title": "Choose a model provider",
-			"wizard.sub": "11 mainstream providers supported. The key is stored only in the local credential store; endpoint and model are editable.",
+			"wizard.sub": "11 cloud providers (OpenAI / Claude / Gemini / Grok / Kimi / MiniMax / Zhipu / Mistral / OpenRouter / Groq / Together) plus local models (LM Studio / Ollama / custom OpenAI-compatible). The key is stored only in the local credential store; endpoint and model are editable.",
 			"wizard.provider": "Provider",
 			"wizard.key": "API Key",
 			"wizard.baseURL": "Endpoint (editable)",
 			"wizard.model": "Model ID (editable)",
+			"wizard.probe": "Fetch models",
+			"wizard.probing": "Fetching…",
+			"wizard.probeEmpty": "The service responded but has no loaded models. Load or pull a model in LM Studio / Ollama first.",
+			"wizard.probeFail": "Cannot reach the local service. Make sure LM Studio / Ollama is running with its local server enabled, or type the model ID manually.",
+			"wizard.localHint": "Local models need no API key. Use \"Fetch models\" to pull model IDs straight from a running LM Studio / Ollama.",
 			"wizard.note": "Saves into model settings and sets the session default. Change any time in Settings → Models.",
 			"wizard.save": "Save and use",
 			"wizard.saving": "Saving…",
 			"wizard.skip": "Skip",
-			"wizard.keyRequired": "API key required"
+			"wizard.keyRequired": "API key required",
+			"wizard.modelRequired": "Model ID required"
 		};
 
 		// ── plugin entry ───────────────────────────────────────────────────────

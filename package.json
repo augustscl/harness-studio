@@ -73,16 +73,22 @@
       "upload.patch.yml",
       "LICENSE",
       "THIRD_PARTY.md",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/**/*.map",
+      "!node_modules/**/*.d.ts",
+      "!node_modules/**/*.md",
+      "!node_modules/**/{test,tests,__tests__,spec,example,examples,benchmark,benchmarks}/**/*",
+      "!node_modules/**/.cache/**"
+    ],
+    "electronLanguages": [
+      "en", "zh_CN", "zh_TW", "ja", "ko",
+      "fr", "de", "es", "it", "pt_BR", "pt_PT", "ru", "nl", "pl", "tr",
+      "ar", "he", "hi", "th", "vi", "id", "ms", "uk", "cs"
     ],
     "extraResources": [
       {
         "from": "resources/dsh-bootstrap.cjs",
         "to": "runtime/dsh-bootstrap.cjs"
-      },
-      {
-        "from": "resources/runtime/pnpm",
-        "to": "runtime/pnpm"
       }
     ],
     "directories": {
@@ -110,7 +116,13 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "extraResources": [
+        {
+          "from": "resources/runtime/pnpm/macos-arm64",
+          "to": "runtime/pnpm/macos-arm64"
+        }
+      ]
     },
     "dmg": {
       "format": "UDZO",
@@ -144,6 +156,12 @@
           "arch": [
             "x64"
           ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "resources/runtime/pnpm/win-x64",
+          "to": "runtime/pnpm/win-x64"
         }
       ]
     },

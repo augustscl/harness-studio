@@ -57,6 +57,34 @@ Desktop 模式（不再探测系统 PATH，不再触发一键安装组件的引�
   打开日志目录、真正退出。
 - 退出只能通过窗口菜单「退出」或托盘「退出 Harness Studio」。
 
+## CI 失败：先分类，再动手（三分法）
+
+参考 Minke 的发布经验，CI 失败先归因，不要急着改代码：
+
+1. **产品缺陷**（我们的代码/配置错了）——症状稳定可复现，本地同样报错。
+   直接修，加回归测试。
+2. **工具链缺陷**（electron-builder / npm / pnpm / node 的问题）——
+   错误信息指向工具本身。本仓库已踩过两个：
+   - Windows 上 `spawnSync` 无法执行 `npm.cmd` 垫片（ENOENT/EINVAL）→
+     改用 Node 内置 fetch 直接下载 tarball（`scripts/fetch-pnpm-runtime.mjs`）；
+   - electron-builder 隐式发布在无 token 时失败 → `--publish never`；
+   - electron-builder `identity:"-"` 的 ad-hoc 签名会产出「code has no
+     resources」损坏签名 → 保持 `identity:null`，打包后手工 deep-sign。
+3. **runner 瞬态故障**（网络超时、磁盘慢、虚拟机抽风）——同一 job 重跑
+   大概率恢复。先重跑一次，再和「该步骤历史耗时」对比；不要在无法复现
+   的情况下改代码。
+
+## 本地模型（LM Studio / Ollama）
+
+模型向导内置三个本地选项（LM Studio / Ollama / 自定义 OpenAI 兼容）：
+
+- 不需要 API Key；保存的是 `llm-pi-ai` 里的一个 OpenAI-compatible provider
+  配置（baseURL 指向本地服务）。
+- 「读取模型列表」按钮通过 `<baseURL>/models`（OpenAI 兼容接口）探测正在
+  运行的本地模型，自动填入模型 ID。
+- 注意：向导探测发生在浏览器里（CORS），LM Studio / Ollama 默认允许本机
+  访问；自定义服务需要自行放开 CORS 或手动填模型 ID。
+
 ## 分发提醒
 
 - 未签名 exe：Windows SmartScreen 会提示"未知发布者"，用户需
