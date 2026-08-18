@@ -1,11 +1,18 @@
 name: build-windows
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '可选：构建完成后把安装包上传到哪个 GitHub Release（如 v0.3.0），留空则只存 Artifacts'
+        required: false
+        default: ''
 
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,3 +29,8 @@ jobs:
             release/*.exe
             release/*.yml
             release/*.blockmap
+      - name: Attach installer to release
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.release_tag }}" release/*.exe release/*.blockmap --clobber
