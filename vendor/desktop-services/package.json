@@ -1,0 +1,11 @@
+{
+  "name": "@harness/desktop-services",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "*"
+  },
+  "description": "Desktop-bridge host plugin: exposes bundled pnpm runtime and profile directory services to other plugins (e.g. dshmarket)."
+}

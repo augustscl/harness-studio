@@ -10,5 +10,7 @@
       name: '@harness/artifact-studio'
     - id: studio-ux
       name: '@harness/studio-ux'
+    - id: desktop-services
+      name: '@harness/desktop-services'
     - id: dsh-market
       name: 'dshmarket'

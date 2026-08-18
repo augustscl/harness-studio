@@ -14,6 +14,7 @@ import { installApplicationMenu } from './app-menu'
 import { HarnessEngineManager } from './engine-manager'
 import { assertTrustedIpcSender } from './ipc-policy'
 import { resolveLoginShellPath } from './login-shell-path'
+import { installTray } from './tray'
 import { WindowController } from './window-controller'
 
 app.setName('Harness Studio')
@@ -123,6 +124,7 @@ async function bootApplication(): Promise<void> {
   installApplicationMenu(controller)
   await controller.create()
   if (quitRequested) return
+  installTray(controller, logPath)
   void engine.start().catch(() => undefined)
 }
 
@@ -148,7 +150,8 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // 系统托盘接管生命周期：窗口关闭即隐藏，应用常驻托盘。
+  // 真正的退出只能通过菜单 / 托盘「退出」/ ⌘Q。
 })
 
 if (hasSingleInstanceLock) {

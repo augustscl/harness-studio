@@ -78,7 +78,8 @@ export class WindowController {
     window.on('enter-full-screen', () => this.#layoutHarnessView())
     window.on('leave-full-screen', () => this.#layoutHarnessView())
     window.on('close', (event) => {
-      if (process.platform === 'darwin' && !this.#isQuitting) {
+      // 关闭窗口 = 收进托盘（系统托盘安装后，两个平台统一行为）。
+      if (!this.#isQuitting) {
         event.preventDefault()
         window.hide()
       }
@@ -124,6 +125,17 @@ export class WindowController {
     if (window.isMinimized()) window.restore()
     window.show()
     window.focus()
+  }
+
+  hide(): void {
+    const window = this.#window
+    if (!window || window.isDestroyed()) return
+    window.hide()
+  }
+
+  isVisible(): boolean {
+    const window = this.#window
+    return !!window && !window.isDestroyed() && window.isVisible()
   }
 
   setQuitting(isQuitting: boolean): void {

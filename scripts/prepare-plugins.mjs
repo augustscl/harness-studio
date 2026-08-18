@@ -18,6 +18,7 @@ const PLUGINS = {
   '@harness/dsh-skin': '0.1.0',
   '@harness/artifact-studio': '0.1.0',
   '@harness/studio-ux': '0.1.0',
+  '@harness/desktop-services': '1.0.0',
   dshmarket: '1.8.0'
 }
 

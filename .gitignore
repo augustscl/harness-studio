@@ -10,3 +10,4 @@ work/
 .DS_Store
 build/icon.iconset/
 build/icon.icns
+resources/runtime/pnpm/
