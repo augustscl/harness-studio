@@ -70,6 +70,7 @@
     "files": [
       "out/**/*",
       "package.json",
+      "upload.patch.yml",
       "LICENSE",
       "THIRD_PARTY.md",
       "node_modules/**/*"
