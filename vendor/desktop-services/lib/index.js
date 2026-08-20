@@ -34,13 +34,20 @@ function pnpmBinaryPath() {
   return null
 }
 
-function profileDir() {
+function profileRoot() {
   // The desktop engine boots with DSH_HOME=<userData>/dsh (engine-manager.ts).
   if (process.env.DSH_HOME) return process.env.DSH_HOME
   const home = homedir()
   if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Harness Studio', 'dsh')
   if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Harness Studio', 'dsh')
   return path.join(home, '.config', 'Harness Studio', 'dsh')
+}
+
+// dsh 0.1.0-rc.8 起，profile 目录布局为 $DSH_HOME/profiles/<name>/，
+// 每个 profile 是独立 pnpm workspace（自带 package.json / node_modules /
+// cordis.patch.yml）。rc.6 时代 profile 直接落在 $DSH_HOME 根目录。
+function profileDir(name = 'web') {
+  return path.join(profileRoot(), 'profiles', name)
 }
 
 function killTree(child) {
@@ -145,11 +152,12 @@ const desktopProfiles = {
   current: {
     name: 'web',
     label: 'Web (current session)',
-    dir: profileDir(),
+    dir: profileDir('web'),
     kind: 'local',
   },
   list() {
-    const dir = profileDir()
+    // rc.8 布局：所有 profile 都挂在 $DSH_HOME/profiles/ 下。
+    const dir = path.join(profileRoot(), 'profiles')
     const entries = []
     try {
       if (existsSync(dir)) {
@@ -163,7 +171,7 @@ const desktopProfiles = {
   },
   select(name) {
     if (!name || name === 'web') {
-      this.current = { name: 'web', label: 'Web (current session)', dir: profileDir(), kind: 'local' }
+      this.current = { name: 'web', label: 'Web (current session)', dir: profileDir('web'), kind: 'local' }
       return this.current
     }
     const found = this.list().find((p) => p.name === name)

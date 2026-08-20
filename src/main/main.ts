@@ -92,11 +92,12 @@ async function bootApplication(): Promise<void> {
       '--expose-internals',
       bootstrapPath,
       dshEntrypoint,
-      'web',
-      // --patch 必须位于 --host 之前：dsh web 只解析自身选项，
-      // 遇到透传参数后会把其后所有参数原样传给内层应用。
+      // rc.8 起 --patch 是 dsh 的全局启动参数（位于 web 子命令之前），
+      // 可重复传入；--no-open 属于 web 子命令自身选项。
       '--patch',
       patchPath,
+      'web',
+      '--no-open',
       '--host',
       '127.0.0.1',
       '--port',
