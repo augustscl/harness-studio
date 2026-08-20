@@ -5,22 +5,43 @@ import { app, Menu, nativeImage, shell, Tray } from 'electron'
 
 import type { WindowController } from './window-controller'
 
-// 16px (Windows) 与 32px (macOS 模板图标, 16pt@2x) 的应用图标剪影,
-// 纯黑 + alpha, 随系统深浅色自动适配。
+// 菜单栏模板图标：取自应用图标的「两条编排路径交汇于中心节点」线稿，
+// 纯黑 + alpha，随系统深浅色自动适配。32px 为 2x、16px 为 1x。
 const TRAY_PNG_32 =
-  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABjklEQVR4nOWXv0oDQRDGfzdRi5SCqLXY2ChWdja+gZVg7xv4BL6Fz+BbWGlpJ9pZiCIEFExikpOVb2RzOa9IsncBPxh2b7Oz8yezyzcwDgOWSIMMaJUtxsZHmi8Dm8Aq0JZiTjnyirUh8AG8AK+RzQkd07gDXAIPQFcb5yEd4Bo4Ldj7gaflCHgvKI4UxbQyKnHmouhEppTfa0OvQnlaCWcNgC9978l2y7SwBWxrviLv4vqYZwEGGye+bpqsRT+mRCbZd3umycT1SOhAwIbGoTvg168utP29sZpSX0TLs2E0DGsoAyxcBurG7xtjNAz7z0W4WBloDPafb0EWO9B4EeZNO9DVOE8WVAWnargDHXG2UsqcAD3Zwx14FndPDQ/uTSTITOTgE7jRhsCIU8GZ9p2+LeaDhxGF7itFgxn7gmF0Tj/67w+KXNQ0nkspTyShTTuLbWYlvWFoGo6BXWBdBPKvB6vq1mQKJnRbT8AtcAU8FvpQYtTxMo61AGURBCe8Y/KimQXBhnda4byxyL8B6l+0dYQEOjoAAAAASUVORK5CYII='
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACeUlEQVR4nO2WsWpUQRSGv7t3lQ1YJIUpAkIWY2FgkSjY5BFSBSsFsRBSBFKkSGusfIQ8QdoggeQhrBRFSamSKoKiQsKaxJGJ/wnHcTf37r23zA/DzM785z9nz5mZO/AXOXAb6Gps8OOqSPVm5Osf7RvAIfAdeAOsA5MNBGG2k9KM2j/lK/o8x30gJO0jsKj1NqPDbBallepHn+e4prQsAC+AA0d8UiEI4z51OgfSXpCv6HMoZoEPMjwBlkYoh3GWZBukFTWHIgNaMr6iuQnglQSOgV6JIGytJ5sgjaiFtHP5ij4LUzgNfJbQW2BMxtbaan5uTNwg2+lEszTa6ue0a6PgzgViNrcj7qFsKzk3WDlW3WZ6prlbwCO1OEZrxltNNCohU/Sx33biuy4r9m933e/txLYWMrdBN4FT5+jE7fSgtc2yG20URLGI68CRnPpATjV3JI63KSVchEztDtBxWTHYv+2IY/zGAggS/ObGg4IM4ti4EO2SAbRcrX8l5z7it2tBfVt9bbTU3wP2B3xU0rYvrret5bwFTAFf5OATsAK81nV7rPGK1oK4U0mWRkbmSvTSpXbeBXdTzZzMuzJEG+rcBVfVr7n0Lidrg/jLjr92AX8oMnd9PnRiG5qzrNhR9BeOrW04u6iBNLOidOdu7gHwQyJ7OuN5QTozcTqyCdKIWoa8qCydJO3v9ZCk5IYyzox71Fg5ovZAdIHnusctcnvJdF3kZZEPCWJPPtad7hnmkrPcVx3Ha7yMzWZcWv3Ex9lbIRNpQpH19ZrZAt65lFa90bxtT3vhroJ7DHwtMm7ic5p+uP5bTB1m7l5vEnZkrQRN61/iElTCH/THuivB/QHsAAAAAElFTkSuQmCC'
 const TRAY_PNG_16 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA0ElEQVR4nM3TQUoDQRAF0DeTaOI+4EJXHiA5jcfJPnfJHVxnkYWQO8SNiIiQKCYTSrqlGYhDdKEfPkPXdP36M/yqUKFBD1e4SLUSTfF8xbr13i1WeMYWbwW3BTd4wh1u8qARXpL6KZxHcx+XGGCf3LTtt5HvTaK/j10q1Em5S6BOd4bB2s/xOaj+hYD/I9AUQTkV1Z87EDmIaEZEz7Ktjp4cpI+Iejh4xCItUzBq3zGGBu/xHtOC15hhnLbx2L/J27jEFA9tu3E+7/iM2MovHAAbFzVHWZTTwgAAAABJRU5ErkJggg=='
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABJElEQVR4nJXTTUoDQRQE4G8mxqBLkUQEQd16AW+QY7gSvIA5Q8C1m7gOeIPgFYJbNwFxoYgXiCj4R+NL6ExG1IJmul9VvZ+eGejgHEcofKO0jFmsCG3ydFKwhTX0cY02PipJyoi1Q9MPTyuvkAIjPKCJlcpqBjcK7RxFkDNcYVgzwjC4GZKnKCptfkZbT7jAdnCPOMYWXqNoGmkJjXh2I1m+uhVNLcoQbGKKl1jTiDWqb6isJEitvUe19RinFftucPnY8kO66Tfs4Qan2AnuHmc4wF2mnaORdXSLnmX0git/uotdTHAZ59XsG0h7wU1CO8c+xnjGIMuej1dkFQehHYfXBk5wkIkXLqomnrTJk7wLqPuJftWkrGnOv5jzJMlT1+n/8AVWeTELRjgVfwAAAABJRU5ErkJggg=='
 
 export function installTray(
   controller: WindowController,
   logPath: string
 ): Tray {
   const isMac = process.platform === 'darwin'
-  const image = nativeImage.createFromBuffer(
-    Buffer.from(isMac ? TRAY_PNG_32 : TRAY_PNG_16, 'base64')
-  )
-  if (isMac) image.setTemplateImage(true)
+  // 托盘图标必须同时提供 1x 与 2x 表示：否则 Electron 把 32px 位图当成
+  // 32pt 使用，macOS 菜单栏被迫缩放，出现模糊/变形/对比度问题。
+  const image = nativeImage.createEmpty()
+  if (isMac) {
+    image.addRepresentation({
+      scaleFactor: 2,
+      width: 32,
+      height: 32,
+      buffer: Buffer.from(TRAY_PNG_32, 'base64')
+    })
+    image.addRepresentation({
+      scaleFactor: 1,
+      width: 16,
+      height: 16,
+      buffer: Buffer.from(TRAY_PNG_16, 'base64')
+    })
+    image.setTemplateImage(true)
+  } else {
+    image.addRepresentation({
+      scaleFactor: 1,
+      width: 16,
+      height: 16,
+      buffer: Buffer.from(TRAY_PNG_16, 'base64')
+    })
+  }
 
   const tray = new Tray(image)
   tray.setToolTip('Harness Studio')
