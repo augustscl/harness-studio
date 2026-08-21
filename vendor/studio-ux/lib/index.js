@@ -30,7 +30,7 @@ function sendJson(res, status, payload) {
 }
 
 class StudioUxService extends Service {
-  static inject = ["webServer", "credentials", "settings"];
+  static inject = ["webServer", "credentials", "settings", "sessions", "sessionProjections"];
 
   constructor(ctx) {
     super(ctx, "studioUx");
@@ -39,6 +39,58 @@ class StudioUxService extends Service {
       path: "/ux",
       handler: (req, res) => this.handle(req, res)
     }), "studio-ux: guide routes");
+  }
+
+  /**
+   * 任务看板数据：所有会话的 goal 投影快照（目标、阶段、轮次）。
+   * 宿主侧 sessions.list() + sessionProjections.snapshot(session) 同步读取，
+   * 无需任何网络或进程。
+   */
+  #tasks() {
+    const sessions = this.ctx.sessions;
+    const projections = this.ctx.sessionProjections;
+    const out = [];
+    try {
+      for (const session of sessions.list()) {
+        let snap;
+        try {
+          snap = projections.snapshot(session);
+        } catch {
+          continue;
+        }
+        const goal = snap?.values?.goal;
+        if (goal === undefined || goal === null) continue;
+        out.push({
+          sessionId: typeof session.id === "string" ? session.id : "",
+          title: typeof snap.values.title === "string" && snap.values.title !== ""
+            ? snap.values.title
+            : (typeof snap.values.title === "object" && snap.values.title !== null && typeof snap.values.title.text === "string"
+              ? snap.values.title.text
+              : ""),
+          goal: {
+            id: goal.id ?? "",
+            objective: goal.objective ?? "",
+            phase: goal.phase ?? "active",
+            revision: goal.revision ?? 0,
+            maxGoalRounds: goal.maxGoalRounds ?? null,
+            roundsStarted: goal.roundsStarted ?? 0,
+            blockedReason: goal.blockedReason !== undefined ? String(goal.blockedReason) : null,
+            createdAt: goal.createdAt ?? null,
+            updatedAt: goal.updatedAt ?? null
+          }
+        });
+      }
+    } catch {
+      return { ok: true, tasks: [] };
+    }
+    // 运行中的排前（active > paused > blocked > complete），同状态按更新时间倒序。
+    const rank = { active: 0, paused: 1, blocked: 2, complete: 3 };
+    out.sort((a, b) => {
+      const r = (rank[a.goal.phase] ?? 4) - (rank[b.goal.phase] ?? 4);
+      if (r !== 0) return r;
+      return (b.goal.updatedAt ?? 0) - (a.goal.updatedAt ?? 0);
+    });
+    return { ok: true, tasks: out };
   }
 
   #readJsonBody(req) {
@@ -198,6 +250,14 @@ class StudioUxService extends Service {
             providers,
             active: active?.value !== void 0 ? { provider: active.value.provider, model: active.value.model } : null
           });
+          return;
+        }
+        sendJson(res, 405, { ok: false, error: "method not allowed" });
+        return;
+      }
+      if (parts[1] === "tasks") {
+        if (req.method === "GET" || req.method === "HEAD") {
+          sendJson(res, 200, this.#tasks());
           return;
         }
         sendJson(res, 405, { ok: false, error: "method not allowed" });

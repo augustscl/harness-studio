@@ -58,6 +58,25 @@ window.__ModuleLoader__.load({
 .wiz-model-row .wiz-input{flex:1}
 .wiz-probe{white-space:nowrap;flex:none;padding:7px 12px}
 .wiz-note{font-size:11.5px;color:var(--dsw-alias-label-tertiary);line-height:1.6;margin:10px 0 0}
+.tb-backdrop{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.28);display:flex;justify-content:flex-end;align-items:flex-start;padding:56px 18px 0 0}
+.tb-panel{width:380px;max-width:calc(100vw - 36px);max-height:70vh;overflow-y:auto;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.45);padding:16px}
+.tb-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.tb-close{flex:none}
+.tb-search{margin-bottom:10px}
+.tb-list{display:flex;flex-direction:column;gap:10px}
+.tb-empty{font-size:13px;color:var(--dsw-alias-label-tertiary);padding:14px 4px;text-align:center}
+.tb-card{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:12px;background:var(--dsw-alias-bg-subtle, var(--dsw-alias-bg-base))}
+.tb-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.tb-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;line-height:1.5}
+.tb-badge-active{background:rgba(56,189,248,.16);color:#38bdf8}
+.tb-badge-paused{background:rgba(251,191,36,.16);color:#fbbf24}
+.tb-badge-blocked{background:rgba(248,113,113,.16);color:#f87171}
+.tb-badge-complete{background:rgba(74,222,128,.14);color:#4ade80}
+.tb-rounds{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.tb-objective{font-size:13.5px;color:var(--dsw-alias-label-primary);line-height:1.55;margin:0 0 4px;word-break:break-word}
+.tb-blocked{font-size:12px;color:#f87171;line-height:1.5;margin:0 0 6px}
+.tb-actions{display:flex;gap:8px;margin-top:8px}
+.tb-actions .guide-btn{padding:4px 10px;font-size:12px}
 `;
 		const CSS_ID = "@harness/studio-ux/styles";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(CSS_ID) + "]") === null) {
@@ -254,6 +273,194 @@ window.__ModuleLoader__.load({
 						onClose: close,
 						t,
 						standalone: true
+					}) : null
+				]
+			});
+		}
+
+		// ── task board (goal / subagent dashboard, codex agents 思路) ─────────
+		const PHASE_BADGE = {
+			active: { key: "board.active", cls: "tb-badge tb-badge-active" },
+			paused: { key: "board.paused", cls: "tb-badge tb-badge-paused" },
+			blocked: { key: "board.blocked", cls: "tb-badge tb-badge-blocked" },
+			complete: { key: "board.complete", cls: "tb-badge tb-badge-complete" }
+		};
+
+		function TaskBoardPanel({ t, onClose, goalsApi }) {
+			const [tasks, setTasks] = react.useState(null);
+			const [query, setQuery] = react.useState("");
+			const [busy, setBusy] = react.useState(new Set());
+			const [error, setError] = react.useState(null);
+			const pollRef = react.useRef(null);
+
+			const refresh = react.useCallback(async () => {
+				try {
+					const res = await fetch("/ux/tasks");
+					const body = await res.json();
+					if (body.ok === true) setTasks(body.tasks ?? []);
+				} catch (err) {
+					setError(err instanceof Error ? err.message : String(err));
+				}
+			}, []);
+
+			react.useEffect(() => {
+				void refresh();
+				pollRef.current = setInterval(() => void refresh(), 3000);
+				return () => {
+					if (pollRef.current !== null) clearInterval(pollRef.current);
+				};
+			}, [refresh]);
+
+			const runAction = async (sessionId, goal, kind) => {
+				const ref = { id: goal.id, revision: goal.revision };
+				setBusy((prev) => new Set(prev).add(sessionId));
+				setError(null);
+				try {
+					const result = kind === "pause"
+						? await goalsApi.pause(sessionId, ref)
+						: kind === "resume"
+							? await goalsApi.resume(sessionId, ref)
+							: await goalsApi.clear(sessionId, ref);
+					if (result !== undefined && result.ok === false) {
+						setError(`${t("board.actionFail")} ${result.error?.message ?? ""} (${result.error?.code ?? ""})`);
+					}
+				} catch (err) {
+					setError(err instanceof Error ? err.message : String(err));
+				} finally {
+					setBusy((prev) => {
+						const next = new Set(prev);
+						next.delete(sessionId);
+						return next;
+					});
+					void refresh();
+				}
+			};
+
+			const q = query.trim().toLowerCase();
+			const filtered = tasks === null ? null : tasks.filter((task) =>
+				q === "" || task.goal.objective.toLowerCase().includes(q) || (task.title ?? "").toLowerCase().includes(q)
+			);
+
+			return jsxRuntime.jsxs("div", {
+				className: "tb-backdrop",
+				onClick: (event) => {
+					if (event.target === event.currentTarget) onClose();
+				},
+				children: [
+					jsxRuntime.jsxs("div", {
+						className: "tb-panel",
+						role: "dialog",
+						"aria-label": t("board.title"),
+						children: [
+							jsxRuntime.jsxs("div", {
+								className: "tb-head",
+								children: [
+									jsxRuntime.jsx("h2", { className: "guide-title", children: t("board.title") }),
+									jsxRuntime.jsx("button", {
+										type: "button",
+										className: "guide-btn-ghost guide-btn tb-close",
+										onClick: onClose,
+										children: t("guide.close")
+									})
+								]
+							}),
+							jsxRuntime.jsx("input", {
+								className: "wiz-input tb-search",
+								value: query,
+								placeholder: t("board.search"),
+								onChange: (event) => setQuery(event.target.value)
+							}),
+							error !== null ? jsxRuntime.jsx("p", { className: "as-err", role: "alert", children: error }) : null,
+							jsxRuntime.jsx("div", {
+								className: "tb-list",
+								children: (() => {
+									if (tasks === null) return jsxRuntime.jsx("p", { className: "tb-empty", children: t("board.loading") });
+									if (filtered.length === 0) return jsxRuntime.jsx("p", { className: "tb-empty", children: q === "" ? t("board.empty") : t("board.noMatch") });
+									return filtered.map((task) => {
+										const badge = PHASE_BADGE[task.goal.phase] ?? PHASE_BADGE.active;
+										const isBusy = busy.has(task.sessionId);
+										return jsxRuntime.jsxs("div", {
+											className: "tb-card",
+											key: task.sessionId,
+											children: [
+												jsxRuntime.jsxs("div", {
+													className: "tb-card-top",
+													children: [
+														jsxRuntime.jsx("span", { className: badge.cls, children: t(badge.key) }),
+														task.goal.maxGoalRounds !== null && task.goal.maxGoalRounds !== undefined
+															? jsxRuntime.jsx("span", {
+																className: "tb-rounds",
+																children: t("board.rounds").replace("{n}", String(task.goal.roundsStarted ?? 0)).replace("{m}", String(task.goal.maxGoalRounds))
+															})
+															: jsxRuntime.jsx("span", {
+																className: "tb-rounds",
+																children: t("board.roundsOpen").replace("{n}", String(task.goal.roundsStarted ?? 0))
+															})
+													]
+												}),
+												jsxRuntime.jsx("p", { className: "tb-objective", children: task.goal.objective }),
+												task.goal.phase === "blocked" && task.goal.blockedReason !== null && task.goal.blockedReason !== undefined
+													? jsxRuntime.jsx("p", { className: "tb-blocked", children: task.goal.blockedReason })
+													: null,
+												jsxRuntime.jsxs("div", {
+													className: "tb-actions",
+													children: [
+														...(task.goal.phase === "active"
+															? [jsxRuntime.jsx("button", {
+																type: "button",
+																className: "guide-btn-ghost guide-btn",
+																disabled: isBusy,
+																onClick: () => void runAction(task.sessionId, task.goal, "pause"),
+																children: t("board.pause")
+															})]
+															: []),
+														...(task.goal.phase === "paused" || task.goal.phase === "blocked"
+															? [jsxRuntime.jsx("button", {
+																type: "button",
+																className: "guide-btn-ghost guide-btn",
+																disabled: isBusy,
+																onClick: () => void runAction(task.sessionId, task.goal, "resume"),
+																children: t("board.resume")
+															})]
+															: []),
+														...(task.goal.phase !== "complete"
+															? [jsxRuntime.jsx("button", {
+																type: "button",
+																className: "guide-btn-ghost guide-btn",
+																disabled: isBusy,
+																onClick: () => void runAction(task.sessionId, task.goal, "clear"),
+																children: t("board.stop")
+															})]
+															: [])
+													]
+												})
+											]
+										});
+									});
+								})()
+							})
+						]
+					})
+				]
+			});
+		}
+
+		function TaskBoardButton({ t, goalsApi }) {
+			const [open, setOpen] = react.useState(false);
+			return jsxRuntime.jsxs(react.Fragment, {
+				children: [
+					jsxRuntime.jsx("button", {
+						type: "button",
+						className: "ux-help-btn",
+						onClick: () => setOpen(true),
+						title: t("board.title"),
+						"aria-label": t("board.title"),
+						children: "📋"
+					}),
+					open ? jsxRuntime.jsx(TaskBoardPanel, {
+						t,
+						goalsApi,
+						onClose: () => setOpen(false)
 					}) : null
 				]
 			});
@@ -462,7 +669,22 @@ window.__ModuleLoader__.load({
 			"wizard.saving": "保存中…",
 			"wizard.skip": "跳过",
 			"wizard.keyRequired": "请先填写 API Key",
-			"wizard.modelRequired": "请填写或选择模型 ID"
+			"wizard.modelRequired": "请填写或选择模型 ID",
+			"board.title": "任务看板",
+			"board.search": "搜索任务…",
+			"board.loading": "正在读取任务…",
+			"board.empty": "当前没有运行中的任务。用 /goal 发起一个长任务试试。",
+			"board.noMatch": "没有匹配的任务",
+			"board.active": "进行中",
+			"board.paused": "已暂停",
+			"board.blocked": "已阻塞",
+			"board.complete": "已完成",
+			"board.rounds": "第 {n}/{m} 轮",
+			"board.roundsOpen": "第 {n} 轮",
+			"board.pause": "暂停",
+			"board.resume": "继续",
+			"board.stop": "停止",
+			"board.actionFail": "操作失败："
 		};
 		const en = {
 			"strip.running": "Running",
@@ -500,12 +722,28 @@ window.__ModuleLoader__.load({
 			"wizard.saving": "Saving…",
 			"wizard.skip": "Skip",
 			"wizard.keyRequired": "API key required",
-			"wizard.modelRequired": "Model ID required"
+			"wizard.modelRequired": "Model ID required",
+			"board.title": "Task board",
+			"board.search": "Search tasks…",
+			"board.loading": "Loading tasks…",
+			"board.empty": "No running tasks. Try /goal to start a long task.",
+			"board.noMatch": "No matching tasks",
+			"board.active": "Running",
+			"board.paused": "Paused",
+			"board.blocked": "Blocked",
+			"board.complete": "Done",
+			"board.rounds": "Round {n}/{m}",
+			"board.roundsOpen": "Round {n}",
+			"board.pause": "Pause",
+			"board.resume": "Resume",
+			"board.stop": "Stop",
+			"board.actionFail": "Action failed: "
 		};
 
 		// ── plugin entry ───────────────────────────────────────────────────────
 		function apply(ctx) {
 			ctx.locale.register("studioUx", { zh, en });
+			const goalsApi = ctx.remote !== undefined && ctx.remote.goals !== undefined ? ctx.remote.goals : null;
 			ctx.inject(["slots"], (scope) => {
 				scope.slots.inject("conversation.chat.turnTail", () => scope.slots.register({
 					name: "conversation.chat.turnTail",
@@ -535,11 +773,18 @@ window.__ModuleLoader__.load({
 					locale: "studioUx",
 					inject: () => ({})
 				}, HelpButton));
+				scope.slots.inject("conversation.session.header.actions", () => scope.slots.register({
+					name: "conversation.session.header.actions",
+					id: "studio-task-board",
+					order: 3,
+					locale: "studioUx",
+					inject: () => ({})
+				}, (props) => TaskBoardButton({ ...props, goalsApi })));
 			});
 		}
 
 		exports.apply = apply;
-		exports.inject = ["locale"];
+		exports.inject = ["locale", "remote", "remote.goals"];
 		return module.exports;
 	}
 });
