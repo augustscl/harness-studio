@@ -92,10 +92,13 @@ async function bootApplication(): Promise<void> {
       '--expose-internals',
       bootstrapPath,
       dshEntrypoint,
-      // rc.8 起 --patch 是 dsh 的全局启动参数（位于 web 子命令之前），
-      // 可重复传入；--no-open 属于 web 子命令自身选项。
+      // rc.8 起 --patch 是 dsh 的全局启动参数；父参数与 `web` 子命令互斥，
+      // 必须用 --profile web 形式组合（web 子命令的自身选项 --no-open /
+      // --host / --port 跟在后面）。实测：`--patch f web ...` 会报
+      // "web takes none of parent --profile, --patch, ..."。
       '--patch',
       patchPath,
+      '--profile',
       'web',
       '--no-open',
       '--host',
