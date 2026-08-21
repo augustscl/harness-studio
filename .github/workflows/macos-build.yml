@@ -1,0 +1,36 @@
+name: build-macos
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '可选：构建完成后把 DMG 上传到哪个 GitHub Release（如 v0.3.1），留空则只存 Artifacts'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies (compiles node-pty natively)
+        run: npm install
+      - name: Build macOS DMG
+        run: npm run build:app && npx electron-builder --mac dmg zip --arm64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harness-studio-macos-arm64
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+      - name: Attach DMG to release
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.release_tag }}" release/*.dmg --clobber
