@@ -84,7 +84,8 @@ window.__ModuleLoader__.load({
 .cx-bar-hot{background:#f87171}
 .cx-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin:0;line-height:1.6}
 .cx-meta b{color:var(--dsw-alias-label-secondary);font-weight:600}
-.sp-card{padding:14px 0}
+.sp-card{padding:14px 0;max-height:calc(100vh - 220px);overflow-y:auto}
+.sp-skip{display:block;width:100%;margin-top:12px;padding:7px 12px}
 .sp-h3{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin:14px 0 2px}
 .sp-textarea{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;outline:none;resize:vertical;min-height:120px;font-family:inherit;margin:6px 0}
 .sp-textarea:focus{border-color:var(--dsw-alias-brand-primary)}
@@ -620,13 +621,32 @@ window.__ModuleLoader__.load({
 		}
 
 		// ── skills & persona settings card ─────────────────────────────────────
-		function SkillsPersonaCard({ t }) {
+		function SkillsPersonaCard({ t, complete }) {
 			const [skills, setSkills] = react.useState(null);
 			const [persona, setPersona] = react.useState("");
 			const [personaLoaded, setPersonaLoaded] = react.useState(false);
 			const [busy, setBusy] = react.useState(false);
 			const [confirmDelete, setConfirmDelete] = react.useState(null);
 			const [msg, setMsg] = react.useState(null);
+			const finishedRef = react.useRef(false);
+			const finish = react.useCallback(() => {
+				if (finishedRef.current) return;
+				finishedRef.current = true;
+				complete?.();
+			}, [complete]);
+			// 已有默认模型配置（老用户）时，onboarding 卡片不再常驻：自动完成。
+			react.useEffect(() => {
+				let alive = true;
+				void fetch("/ux/models").then((res) => res.json()).then((body) => {
+					if (!alive) return;
+					if (body.ok === true && body.active !== null && typeof body.active === "object" && typeof body.active.model === "string" && body.active.model !== "") finish();
+				}).catch(() => { /* keep the card as a fallback */ });
+				return () => { alive = false; };
+			}, [finish]);
+			const skipPersona = async () => {
+				try { await fetch("/ux/guide", { method: "POST" }); } catch (_) { /* non-fatal */ }
+				finish();
+			};
 
 			const loadSkills = react.useCallback(async () => {
 				try {
@@ -703,6 +723,13 @@ window.__ModuleLoader__.load({
 				className: "sp-card",
 				children: [
 					jsxRuntime.jsx("h2", { className: "guide-title", children: t("sp.title") }),
+					jsxRuntime.jsx("button", {
+						type: "button",
+						className: "guide-btn-ghost guide-btn sp-skip",
+						disabled: busy,
+						onClick: () => void skipPersona(),
+						children: t("sp.skip")
+					}),
 					jsxRuntime.jsx("p", { className: "guide-sub", children: t("sp.sub") }),
 					jsxRuntime.jsx("h3", { className: "sp-h3", children: t("sp.personaTitle") }),
 					jsxRuntime.jsx("p", { className: "wiz-note", children: t("sp.personaHint") }),
@@ -806,6 +833,25 @@ window.__ModuleLoader__.load({
 				finishedRef.current = true;
 				complete();
 			}, [complete]);
+			// 已有默认模型配置，或此前明确跳过时，向导不再弹出。
+			react.useEffect(() => {
+				let alive = true;
+				try {
+					if (localStorage.getItem("studio-ux.skip-model-wizard") === "1") {
+						finish();
+						return () => { alive = false; };
+					}
+				} catch (_) { /* ignore */ }
+				void fetch("/ux/models").then((res) => res.json()).then((body) => {
+					if (!alive) return;
+					if (body.ok === true && body.active !== null && typeof body.active === "object" && typeof body.active.model === "string" && body.active.model !== "") finish();
+				}).catch(() => { /* keep the wizard as a fallback */ });
+				return () => { alive = false; };
+			}, [finish]);
+			const skip = () => {
+				try { localStorage.setItem("studio-ux.skip-model-wizard", "1"); } catch (_) { /* ignore */ }
+				finish();
+			};
 			const pickProvider = (index) => {
 				setProviderIdx(index);
 				setBaseURL(PROVIDERS[index].baseURL);
@@ -930,7 +976,7 @@ window.__ModuleLoader__.load({
 						jsxRuntime.jsxs("div", {
 							className: "guide-actions",
 							children: [
-								jsxRuntime.jsx("button", { type: "button", className: "guide-btn-ghost guide-btn", onClick: finish, children: t("wizard.skip") }),
+								jsxRuntime.jsx("button", { type: "button", className: "guide-btn-ghost guide-btn", onClick: skip, children: t("wizard.skip") }),
 								jsxRuntime.jsx("button", { type: "button", className: "guide-btn", onClick: () => void save(), disabled: busy, children: busy ? t("wizard.saving") : t("wizard.save") })
 							]
 						})
@@ -1004,6 +1050,7 @@ window.__ModuleLoader__.load({
 			"sp.saved": "已保存，新会话生效",
 			"sp.skillsTitle": "技能库",
 			"sp.skillsHint": "技能是 AI 的专项能力包。关闭后不再被自动调用；删除不可恢复。",
+			"sp.skip": "跳过，不再显示",
 			"sp.noSkills": "还没有安装任何技能",
 			"sp.enable": "启用",
 			"sp.disable": "停用",
@@ -1074,6 +1121,7 @@ window.__ModuleLoader__.load({
 			"sp.saved": "Saved — new sessions will use it",
 			"sp.skillsTitle": "Skills",
 			"sp.skillsHint": "Skills are specialized capability packs. Disabled skills are not auto-invoked; deletion is permanent.",
+			"sp.skip": "Skip, don't show again",
 			"sp.noSkills": "No skills installed",
 			"sp.enable": "Enable",
 			"sp.disable": "Disable",
