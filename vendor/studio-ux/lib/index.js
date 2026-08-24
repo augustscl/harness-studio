@@ -15,6 +15,7 @@
  *    own DEEPSEEK_API_KEY and returns a text description/OCR result.
  */
 import { Service } from "@deepseek-ai/cordis";
+import { defineTool } from "@deepseek-ai/dsh-tools";
 import { promises as fsp } from "node:fs";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -81,7 +82,7 @@ export class StudioUxService extends Service {
         order: 112,
         text: `Use the describe_image tool whenever a task involves an image file you cannot see (the current model is text-only, or the image is referenced by a path such as uploads/…): it sends the image to a vision model and returns a detailed Chinese description with OCR text. Prefer it over guessing image contents.`
       });
-      ctx.tools.register({
+      ctx.tools.register(defineTool({
         name: "describe_image",
         description: "Describe the contents of a local image file (or extract its text) by sending it to a vision model. Use when you need to understand an image but cannot see it directly.",
         parameters: {
@@ -154,7 +155,7 @@ export class StudioUxService extends Service {
           if (typeof text === "string" && text !== "") return { content: text };
           return { content: `describe_image: 视觉模型没有返回内容（${basename(filePath)}）` };
         }
-      });
+      }));
     }, "studio-ux: describe_image tool");
   }
 
