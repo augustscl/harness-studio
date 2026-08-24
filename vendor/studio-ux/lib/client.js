@@ -77,6 +77,24 @@ window.__ModuleLoader__.load({
 .tb-blocked{font-size:12px;color:#f87171;line-height:1.5;margin:0 0 6px}
 .tb-actions{display:flex;gap:8px;margin-top:8px}
 .tb-actions .guide-btn{padding:4px 10px;font-size:12px}
+.cx-title{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.cx-bar-wrap{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cx-bar{flex:1;height:6px;border-radius:999px;background:var(--dsw-alias-border-l2);overflow:hidden}
+.cx-bar-fill{height:100%;border-radius:999px;background:#38bdf8;transition:width .4s ease}
+.cx-bar-hot{background:#f87171}
+.cx-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin:0;line-height:1.6}
+.cx-meta b{color:var(--dsw-alias-label-secondary);font-weight:600}
+.sp-card{padding:14px 0}
+.sp-h3{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin:14px 0 2px}
+.sp-textarea{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;outline:none;resize:vertical;min-height:120px;font-family:inherit;margin:6px 0}
+.sp-textarea:focus{border-color:var(--dsw-alias-brand-primary)}
+.sp-skills{display:flex;flex-direction:column;gap:8px;margin-top:8px;max-height:360px;overflow-y:auto}
+.sp-skill{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:8px 10px}
+.sp-skill-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sp-skill-info b{font-size:12.5px;color:var(--dsw-alias-label-primary)}
+.sp-skill-off{text-decoration:line-through;opacity:.6}
+.sp-skill-desc{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}
+.sp-msg{font-size:12px;color:#4ade80;margin:6px 0 0}
 `;
 		const CSS_ID = "@harness/studio-ux/styles";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(CSS_ID) + "]") === null) {
@@ -466,6 +484,295 @@ window.__ModuleLoader__.load({
 			});
 		}
 
+		// ── context dashboard (token / context usage per session) ──────────────
+		function ContextPanel({ t, onClose }) {
+			const [rows, setRows] = react.useState(null);
+			const [error, setError] = react.useState(null);
+
+			const refresh = react.useCallback(async () => {
+				try {
+					const res = await fetch("/ux/sessions");
+					const body = await res.json();
+					if (body.ok === true) setRows(body.sessions ?? []);
+				} catch (err) {
+					setError(err instanceof Error ? err.message : String(err));
+				}
+			}, []);
+
+			react.useEffect(() => {
+				void refresh();
+				const timer = setInterval(() => void refresh(), 5000);
+				return () => clearInterval(timer);
+			}, [refresh]);
+
+			const fmt = (n) => {
+				if (n === null || n === undefined) return null;
+				if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+				return String(n);
+			};
+
+			const renderRow = (row) => {
+				const surface = row.surfaceTokens;
+				const windowSize = row.contextWindow;
+				const pct = surface !== null && windowSize !== null && windowSize > 0
+					? Math.min(100, Math.round((surface / windowSize) * 100))
+					: null;
+				return jsxRuntime.jsxs("div", {
+					className: "tb-card",
+					key: row.sessionId,
+					children: [
+						jsxRuntime.jsxs("div", {
+							className: "tb-card-top",
+							children: [
+								jsxRuntime.jsx("span", {
+									className: "cx-title",
+									children: row.title !== "" ? row.title : t("cx.untitled")
+								}),
+								row.goalPhase !== null && row.goalPhase !== undefined && row.goalPhase !== "complete"
+									? jsxRuntime.jsx("span", { className: PHASE_BADGE[row.goalPhase]?.cls ?? "tb-badge tb-badge-active", children: t(PHASE_BADGE[row.goalPhase]?.key ?? "board.active") })
+									: null
+							]
+						}),
+						...(pct !== null
+							? [jsxRuntime.jsxs("div", {
+								className: "cx-bar-wrap",
+								children: [
+									jsxRuntime.jsx("div", {
+										className: "cx-bar",
+										children: jsxRuntime.jsx("div", {
+											className: pct >= 80 ? "cx-bar-fill cx-bar-hot" : "cx-bar-fill",
+											style: { width: `${pct}%` }
+										})
+									}),
+									jsxRuntime.jsx("span", {
+										className: "tb-rounds",
+										children: `${fmt(surface)} / ${fmt(windowSize)}（${pct}%）`
+									})
+								]
+							})]
+							: []),
+						jsxRuntime.jsx("p", {
+							className: "cx-meta",
+							children: [
+								"输入 ", jsxRuntime.jsx("b", { children: fmt(row.inputTokens) ?? "–" }),
+								" · 命中缓存 ", jsxRuntime.jsx("b", { children: fmt(row.cacheReadTokens) ?? "–" }),
+								" · 输出 ", jsxRuntime.jsx("b", { children: fmt(row.outputTokens) ?? "–" })
+							]
+						})
+					]
+				});
+			};
+
+			return jsxRuntime.jsxs("div", {
+				className: "tb-backdrop",
+				onClick: (event) => {
+					if (event.target === event.currentTarget) onClose();
+				},
+				children: [
+					jsxRuntime.jsxs("div", {
+						className: "tb-panel",
+						role: "dialog",
+						"aria-label": t("cx.title"),
+						children: [
+							jsxRuntime.jsxs("div", {
+								className: "tb-head",
+								children: [
+									jsxRuntime.jsx("h2", { className: "guide-title", children: t("cx.title") }),
+									jsxRuntime.jsx("button", {
+										type: "button",
+										className: "guide-btn-ghost guide-btn tb-close",
+										onClick: onClose,
+										children: t("guide.close")
+									})
+								]
+							}),
+							error !== null ? jsxRuntime.jsx("p", { className: "as-err", role: "alert", children: error }) : null,
+							jsxRuntime.jsx("div", {
+								className: "tb-list",
+								children: (() => {
+									if (rows === null) return jsxRuntime.jsx("p", { className: "tb-empty", children: t("board.loading") });
+									const visible = rows.filter((r) => r.hasAny === true);
+									if (visible.length === 0) return jsxRuntime.jsx("p", { className: "tb-empty", children: t("cx.empty") });
+									return visible.map(renderRow);
+								})()
+							})
+						]
+					})
+				]
+			});
+		}
+
+		function ContextButton({ t }) {
+			const [open, setOpen] = react.useState(false);
+			return jsxRuntime.jsxs(react.Fragment, {
+				children: [
+					jsxRuntime.jsx("button", {
+						type: "button",
+						className: "ux-help-btn",
+						onClick: () => setOpen(true),
+						title: t("cx.title"),
+						"aria-label": t("cx.title"),
+						children: "📊"
+					}),
+					open ? jsxRuntime.jsx(ContextPanel, { t, onClose: () => setOpen(false) }) : null
+				]
+			});
+		}
+
+		// ── skills & persona settings card ─────────────────────────────────────
+		function SkillsPersonaCard({ t }) {
+			const [skills, setSkills] = react.useState(null);
+			const [persona, setPersona] = react.useState("");
+			const [personaLoaded, setPersonaLoaded] = react.useState(false);
+			const [busy, setBusy] = react.useState(false);
+			const [confirmDelete, setConfirmDelete] = react.useState(null);
+			const [msg, setMsg] = react.useState(null);
+
+			const loadSkills = react.useCallback(async () => {
+				try {
+					const res = await fetch("/ux/skills");
+					const body = await res.json();
+					if (body.ok === true) setSkills(body.skills ?? []);
+				} catch { /* ignore */ }
+			}, []);
+
+			react.useEffect(() => {
+				void loadSkills();
+				void fetch("/ux/persona").then((r) => r.json()).then((b) => {
+					if (b.ok === true) {
+						setPersona(b.text ?? "");
+						setPersonaLoaded(true);
+					}
+				}).catch(() => setPersonaLoaded(true));
+			}, [loadSkills]);
+
+			const toggle = async (name, enabled) => {
+				setBusy(true);
+				try {
+					const res = await fetch("/ux/skills", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ action: "toggle", name, enabled })
+						});
+					const body = await res.json();
+					if (body.ok === true) await loadSkills();
+					else setMsg(body.error ?? "toggle failed");
+				} finally {
+					setBusy(false);
+				}
+			};
+
+			const remove = async (name) => {
+				if (confirmDelete !== name) {
+					setConfirmDelete(name);
+					return;
+				}
+				setConfirmDelete(null);
+				setBusy(true);
+				try {
+					const res = await fetch("/ux/skills", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ action: "delete", name })
+						});
+					const body = await res.json();
+					if (body.ok === true) await loadSkills();
+					else setMsg(body.error ?? "delete failed");
+				} finally {
+					setBusy(false);
+				}
+			};
+
+			const savePersona = async () => {
+				setBusy(true);
+				setMsg(null);
+				try {
+					const res = await fetch("/ux/persona", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ text: persona })
+						});
+					const body = await res.json();
+					setMsg(body.ok === true ? t("sp.saved") : body.error ?? "save failed");
+				} finally {
+					setBusy(false);
+				}
+			};
+
+			return jsxRuntime.jsxs("div", {
+				className: "sp-card",
+				children: [
+					jsxRuntime.jsx("h2", { className: "guide-title", children: t("sp.title") }),
+					jsxRuntime.jsx("p", { className: "guide-sub", children: t("sp.sub") }),
+					jsxRuntime.jsx("h3", { className: "sp-h3", children: t("sp.personaTitle") }),
+					jsxRuntime.jsx("p", { className: "wiz-note", children: t("sp.personaHint") }),
+					jsxRuntime.jsx("textarea", {
+						className: "sp-textarea",
+						value: persona,
+						rows: 6,
+						placeholder: t("sp.personaPlaceholder"),
+						disabled: !personaLoaded || busy,
+						onChange: (event) => setPersona(event.target.value)
+					}),
+					jsxRuntime.jsx("button", {
+						type: "button",
+						className: "guide-btn",
+						disabled: !personaLoaded || busy,
+						onClick: () => void savePersona(),
+						children: t("sp.save")
+					}),
+					jsxRuntime.jsx("h3", { className: "sp-h3", children: t("sp.skillsTitle") }),
+					jsxRuntime.jsx("p", { className: "wiz-note", children: t("sp.skillsHint") }),
+					msg !== null ? jsxRuntime.jsx("p", { className: "sp-msg", children: msg }) : null,
+					jsxRuntime.jsx("div", {
+						className: "sp-skills",
+						children: skills === null
+							? jsxRuntime.jsx("p", { className: "tb-empty", children: t("board.loading") })
+							: skills.length === 0
+								? jsxRuntime.jsx("p", { className: "tb-empty", children: t("sp.noSkills") })
+								: skills.map((skill) => jsxRuntime.jsxs("div", {
+									className: "sp-skill",
+									key: skill.name,
+									children: [
+										jsxRuntime.jsxs("div", {
+											className: "sp-skill-info",
+											children: [
+												jsxRuntime.jsx("b", {
+													className: skill.enabled ? "" : "sp-skill-off",
+													children: skill.name
+												}),
+												jsxRuntime.jsx("span", {
+													className: "sp-skill-desc",
+													children: skill.description.length > 60 ? `${skill.description.slice(0, 60)}…` : skill.description
+												})
+											]
+										}),
+										jsxRuntime.jsx("div", {
+											className: "tb-actions",
+											children: [
+												jsxRuntime.jsx("button", {
+													type: "button",
+													className: "guide-btn-ghost guide-btn",
+													disabled: busy,
+													onClick: () => void toggle(skill.name, !skill.enabled),
+													children: skill.enabled ? t("sp.disable") : t("sp.enable")
+												}),
+												jsxRuntime.jsx("button", {
+													type: "button",
+													className: "guide-btn-ghost guide-btn",
+													disabled: busy,
+													onClick: () => void remove(skill.name),
+													children: confirmDelete === skill.name ? t("sp.confirmDelete") : t("sp.delete")
+												})
+											]
+										})
+									]
+								}))
+					})
+				]
+			});
+		}
+
 		// ── model wizard (first-run provider setup) ────────────────────────────
 		const PROVIDERS = [
 			{ route: "openai", name: "OpenAI", protocol: "openai-completions", baseURL: "https://api.openai.com/v1", model: "gpt-4.1" },
@@ -684,7 +991,24 @@ window.__ModuleLoader__.load({
 			"board.pause": "暂停",
 			"board.resume": "继续",
 			"board.stop": "停止",
-			"board.actionFail": "操作失败："
+			"board.actionFail": "操作失败：",
+			"cx.title": "上下文与用量",
+			"cx.untitled": "（未命名会话）",
+			"cx.empty": "还没有用量数据。发几条消息后再来看。",
+			"sp.title": "技能与人格",
+			"sp.sub": "管理你的技能库，并给所有会话设置一条全局人格指令（写入 AGENTS.md，每个新会话自动生效）。",
+			"sp.personaTitle": "全局人格指令",
+			"sp.personaHint": "例如：你是我的私人助理，回答要简洁、用中文、先给结论。",
+			"sp.personaPlaceholder": "在这里写下希望 AI 在所有会话里遵守的规则…",
+			"sp.save": "保存人格指令",
+			"sp.saved": "已保存，新会话生效",
+			"sp.skillsTitle": "技能库",
+			"sp.skillsHint": "技能是 AI 的专项能力包。关闭后不再被自动调用；删除不可恢复。",
+			"sp.noSkills": "还没有安装任何技能",
+			"sp.enable": "启用",
+			"sp.disable": "停用",
+			"sp.delete": "删除",
+			"sp.confirmDelete": "确认删除？"
 		};
 		const en = {
 			"strip.running": "Running",
@@ -737,7 +1061,24 @@ window.__ModuleLoader__.load({
 			"board.pause": "Pause",
 			"board.resume": "Resume",
 			"board.stop": "Stop",
-			"board.actionFail": "Action failed: "
+			"board.actionFail": "Action failed: ",
+			"cx.title": "Context & usage",
+			"cx.untitled": "(untitled session)",
+			"cx.empty": "No usage yet. Send a few messages first.",
+			"sp.title": "Skills & persona",
+			"sp.sub": "Manage your skills and set one global persona instruction (written to AGENTS.md and applied to every new session).",
+			"sp.personaTitle": "Global persona",
+			"sp.personaHint": "E.g. reply concisely, in Chinese, conclusion first.",
+			"sp.personaPlaceholder": "Write rules for the AI to follow in every session…",
+			"sp.save": "Save persona",
+			"sp.saved": "Saved — new sessions will use it",
+			"sp.skillsTitle": "Skills",
+			"sp.skillsHint": "Skills are specialized capability packs. Disabled skills are not auto-invoked; deletion is permanent.",
+			"sp.noSkills": "No skills installed",
+			"sp.enable": "Enable",
+			"sp.disable": "Disable",
+			"sp.delete": "Delete",
+			"sp.confirmDelete": "Delete?"
 		};
 
 		// ── plugin entry ───────────────────────────────────────────────────────
@@ -781,6 +1122,20 @@ window.__ModuleLoader__.load({
 					inject: () => ({})
 				}, (props) => TaskBoardButton({ ...props, goalsApi })));
 			});
+				scope.slots.inject("conversation.session.header.actions", () => scope.slots.register({
+					name: "conversation.session.header.actions",
+					id: "studio-context-dashboard",
+					order: 4,
+					locale: "studioUx",
+					inject: () => ({})
+				}, ContextButton));
+				scope.slots.inject("settings.onboarding", () => scope.slots.register({
+					name: "settings.onboarding",
+					id: "studio-skills-persona",
+					order: 80,
+					locale: "studioUx",
+					inject: () => ({})
+				}, SkillsPersonaCard));
 		}
 
 		exports.apply = apply;

@@ -14,6 +14,7 @@ import { installApplicationMenu } from './app-menu'
 import { HarnessEngineManager } from './engine-manager'
 import { assertTrustedIpcSender } from './ipc-policy'
 import { resolveLoginShellPath } from './login-shell-path'
+import { TaskNotifier } from './notify'
 import { installTray } from './tray'
 import { WindowController } from './window-controller'
 
@@ -129,6 +130,9 @@ async function bootApplication(): Promise<void> {
   await controller.create()
   if (quitRequested) return
   installTray(controller, logPath)
+  const notifier = new TaskNotifier(engine, () => controller?.show())
+  notifier.start()
+  app.on('before-quit', () => notifier.stop())
   void engine.start().catch(() => undefined)
 }
 
