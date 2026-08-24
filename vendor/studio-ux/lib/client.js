@@ -1121,7 +1121,6 @@ window.__ModuleLoader__.load({
 					locale: "studioUx",
 					inject: () => ({})
 				}, (props) => TaskBoardButton({ ...props, goalsApi })));
-			});
 				scope.slots.inject("conversation.session.header.actions", () => scope.slots.register({
 					name: "conversation.session.header.actions",
 					id: "studio-context-dashboard",
@@ -1136,6 +1135,7 @@ window.__ModuleLoader__.load({
 					locale: "studioUx",
 					inject: () => ({})
 				}, SkillsPersonaCard));
+			});
 		}
 
 		exports.apply = apply;
