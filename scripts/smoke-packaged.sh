@@ -60,7 +60,7 @@ test -n "$engine_pid"
 
 page="$smoke_root/harness.html"
 curl --fail --silent --show-error --max-time 5 "$engine_url" > "$page"
-grep -q 'window.__DSH_BOOT__' "$page"
+grep -q '__DSH_BOOT__' "$page"
 
 profiles_modules="$user_data/dsh/profiles/node_modules"
 first_link="$(find "$profiles_modules" -maxdepth 1 -type l -print -quit)"

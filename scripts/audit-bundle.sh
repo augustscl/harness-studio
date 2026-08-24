@@ -40,7 +40,7 @@ dsh_version="$(
     "$runtime_root/node_modules/@deepseek-ai/dsh/lib/bin.js" \
     --version
 )"
-test "$dsh_version" = "0.1.0-rc.6"
+test "$dsh_version" = "0.1.1-rc.2"
 
 if find "$runtime_root" -path "$runtime_root/node_modules" -prune -o -name '.env*' -print | grep -q .; then
   echo 'Unexpected environment file found in the application bundle.' >&2

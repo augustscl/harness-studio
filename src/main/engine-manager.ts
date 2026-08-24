@@ -324,7 +324,9 @@ export class HarnessEngineManager {
         if (response.ok) {
           const marker =
             this.#options.healthMarker === undefined
-              ? 'window.__DSH_BOOT__'
+              ? // dsh ≤ rc.8 renders `window.__DSH_BOOT__`, rc.2+ renders
+                // `globalThis["__DSH_BOOT__"]`; the bare token matches both.
+                '__DSH_BOOT__'
               : this.#options.healthMarker
           if (marker === false || (await response.text()).includes(marker)) return
         }
