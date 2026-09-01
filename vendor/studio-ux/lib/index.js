@@ -258,8 +258,40 @@ export class StudioUxService extends Service {
           continue;
         }
         const values = snap?.values ?? {};
+        const turns = [];
+        try {
+          const buckets = new Map();
+          for (const event of session.events ?? []) {
+            let turn;
+            let step;
+            let usage;
+            if (event.type === "assistant/chunk" && event.data?.chunk?.type === "usage") {
+              ({ turn, step } = event.data);
+              usage = event.data.chunk.usage;
+            } else if (event.type === "assistant/message" && event.data?.usage !== void 0) {
+              ({ turn, step, usage } = event.data);
+            } else {
+              continue;
+            }
+            if (typeof turn !== "number" || typeof step !== "number" || typeof usage !== "object" || usage === null) continue;
+            const key = turn + ":" + step;
+            const b = buckets.get(key);
+            const same = b !== void 0 && b.turn === turn && b.step === step && b.in === (usage.uncachedInputTokens ?? usage.inputTokens ?? 0) && b.out === (usage.outputTokens ?? 0) && b.cache === (usage.cacheReadTokens ?? 0);
+            if (b !== void 0 && same) continue;
+            buckets.set(key, {
+              turn,
+              step,
+              in: usage.uncachedInputTokens ?? usage.inputTokens ?? 0,
+              out: usage.outputTokens ?? 0,
+              cache: usage.cacheReadTokens ?? 0
+            });
+          }
+          for (const b of buckets.values()) turns.push(b);
+          turns.sort((a, b2) => b2.turn - a.turn);
+        } catch { /* events not addressable — leave turns empty */ }
         out.push({
           sessionId: typeof session.id === "string" ? session.id : "",
+          turns: turns.slice(0, 30),
           title: typeof values.title === "string" && values.title !== ""
             ? values.title
             : (typeof values.title === "object" && values.title !== null && typeof values.title.text === "string"
@@ -323,6 +355,12 @@ export class StudioUxService extends Service {
         sessionId: s.sessionId,
         title: s.title,
         goalPhase: goal !== undefined && goal !== null ? goal.phase : null,
+        turns: (s.turns ?? []).map((t) => ({
+          turn: t.turn,
+          inputTokens: t.in,
+          outputTokens: t.out,
+          cacheReadTokens: t.cache
+        })),
         surfaceTokens: pressure !== null && typeof pressure.surfaceTokens === "number" ? pressure.surfaceTokens : null,
         contextWindow: pressure !== null && typeof pressure.contextWindow === "number" ? pressure.contextWindow : null,
         systemTokens: breakdown !== null && typeof breakdown.systemTokens === "number" ? breakdown.systemTokens : null,
@@ -430,6 +468,74 @@ export class StudioUxService extends Service {
     return { ok: true };
   }
 
+  ZH_MARKER_START = "<!-- studio-zh:start -->";
+  ZH_MARKER_END = "<!-- studio-zh:end -->";
+  ZH_BLOCK = `${this.ZH_MARKER_START}\n请始终使用简体中文回复：思考过程、最终回答以及向用户提出的问题都使用简体中文，除非用户明确要求其他语言。\n${this.ZH_MARKER_END}\n`;
+
+  async #prefsRead() {
+    try {
+      const raw = await fsp.readFile(guidePath(), "utf8");
+      const data = JSON.parse(raw);
+      return { ok: true, prefs: data.prefs ?? {} };
+    } catch {
+      return { ok: true, prefs: {} };
+    }
+  }
+
+  async #prefsSave(prefs) {
+    const path = guidePath();
+    let data = {};
+    try {
+      data = JSON.parse(await fsp.readFile(path, "utf8"));
+    } catch { /* fresh */ }
+    data.prefs = prefs;
+    const tmp = `${path}.${process.pid}.tmp`;
+    await fsp.mkdir(join(tmp, ".."), { recursive: true });
+    await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
+    await fsp.rename(tmp, path);
+  }
+
+  /** 默认中文开关：通过 AGENTS.md 的标记块即时生效（新会话即用，无需重启引擎）。 */
+  async #setZhReply(enabled) {
+    const path = personaPath();
+    let text = "";
+    try {
+      text = await fsp.readFile(path, "utf8");
+    } catch { /* no persona yet */ }
+    const startIdx = text.indexOf(this.ZH_MARKER_START);
+    const endIdx = text.indexOf(this.ZH_MARKER_END);
+    if (startIdx !== -1 && endIdx !== -1) {
+      text = text.slice(0, startIdx) + text.slice(endIdx + this.ZH_MARKER_END.length).replace(/^\n/, "");
+    }
+    if (enabled) {
+      text = text.replace(/\n*$/, "") + "\n\n" + this.ZH_BLOCK;
+    }
+    const tmp = `${path}.${process.pid}.tmp`;
+    await fsp.mkdir(join(tmp, ".."), { recursive: true });
+    await fsp.writeFile(tmp, text, { mode: 0o600 });
+    await fsp.rename(tmp, path);
+    return enabled;
+  }
+
+  async #writePrefs(body) {
+    const next = {};
+    if (typeof body?.zhReply === "boolean") {
+      next.zhReply = await this.#setZhReply(body.zhReply);
+    }
+    if (body?.reasoningEffort !== undefined && body?.reasoningEffort !== null) {
+      const effort = String(body.reasoningEffort);
+      if (!["off", "low", "high", "max"].includes(effort)) throw new Error("invalid reasoning effort");
+      const revision = this.#revisionOf("agent-default-model");
+      await this.ctx.settings.mutate("agent-default-model", [
+        { op: "set", path: ["reasoningEffort"], value: effort }
+      ], revision);
+      next.reasoningEffort = effort;
+    }
+    const current = JSON.parse(JSON.stringify((await this.#prefsRead()).prefs));
+    await this.#prefsSave({ ...current, ...next });
+    return { ok: true, prefs: { ...current, ...next } };
+  }
+
   async #state() {
     let seen = false;
     try {
@@ -502,6 +608,29 @@ export class StudioUxService extends Service {
             providers,
             active: active?.value !== void 0 ? { provider: active.value.provider, model: active.value.model } : null
           });
+          return;
+        }
+        sendJson(res, 405, { ok: false, error: "method not allowed" });
+        return;
+      }
+      if (parts[1] === "prefs") {
+        if (req.method === "GET" || req.method === "HEAD") {
+          sendJson(res, 200, await this.#prefsRead());
+          return;
+        }
+        if (req.method === "POST") {
+          let body;
+          try {
+            body = await this.#readJsonBody(req);
+          } catch (error) {
+            sendJson(res, 400, { ok: false, error: `invalid JSON: ${String(error?.message ?? error)}` });
+            return;
+          }
+          try {
+            sendJson(res, 200, await this.#writePrefs(body ?? {}));
+          } catch (error) {
+            sendJson(res, 400, { ok: false, error: String(error?.message ?? error) });
+          }
           return;
         }
         sendJson(res, 405, { ok: false, error: "method not allowed" });

@@ -96,6 +96,12 @@ window.__ModuleLoader__.load({
 .sp-skill-off{text-decoration:line-through;opacity:.6}
 .sp-skill-desc{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}
 .sp-msg{font-size:12px;color:#4ade80;margin:6px 0 0}
+.cx-turns{margin-top:6px;border-top:1px dashed var(--dsw-alias-border-l2);padding-top:6px;display:flex;flex-direction:column;gap:3px}
+.cx-turn{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:1.5}
+.sp-prefs{display:flex;flex-direction:column;gap:8px;margin:6px 0 2px}
+.sp-pref{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-primary);cursor:pointer}
+.sp-pref input[type=checkbox]{accent-color:var(--dsw-alias-brand-primary)}
+.sp-effort{width:auto;padding:4px 8px}
 `;
 		const CSS_ID = "@harness/studio-ux/styles";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(CSS_ID) + "]") === null) {
@@ -559,7 +565,17 @@ window.__ModuleLoader__.load({
 								" · 命中缓存 ", jsxRuntime.jsx("b", { children: fmt(row.cacheReadTokens) ?? "–" }),
 								" · 输出 ", jsxRuntime.jsx("b", { children: fmt(row.outputTokens) ?? "–" })
 							]
-						})
+						}),
+						...(Array.isArray(row.turns) && row.turns.length > 0
+							? [jsxRuntime.jsx("div", {
+								className: "cx-turns",
+								children: row.turns.slice(0, 3).map((turn) => jsxRuntime.jsx("div", {
+									className: "cx-turn",
+									key: String(turn.turn),
+									children: `${t("cx.turn")} ${turn.turn} · 输入 ${fmt(turn.inputTokens) ?? "–"} · 缓存 ${fmt(turn.cacheReadTokens) ?? "–"} · 输出 ${fmt(turn.outputTokens) ?? "–"}`
+								}))
+							})]
+							: [])
 					]
 				});
 			};
@@ -628,6 +644,37 @@ window.__ModuleLoader__.load({
 			const [busy, setBusy] = react.useState(false);
 			const [confirmDelete, setConfirmDelete] = react.useState(null);
 			const [msg, setMsg] = react.useState(null);
+			const [prefs, setPrefs] = react.useState({ zhReply: false, reasoningEffort: null });
+			const [prefsBusy, setPrefsBusy] = react.useState(false);
+
+			const loadPrefs = react.useCallback(async () => {
+				try {
+					const res = await fetch("/ux/prefs");
+					const body = await res.json();
+					if (body.ok === true) setPrefs(body.prefs ?? {});
+				} catch { /* ignore */ }
+			}, []);
+
+			react.useEffect(() => {
+				void loadPrefs();
+			}, [loadPrefs]);
+
+			const savePref = async (patch) => {
+				if (prefsBusy) return;
+				setPrefsBusy(true);
+				try {
+					const res = await fetch("/ux/prefs", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify(patch)
+						});
+					const body = await res.json();
+					if (body.ok === true) setPrefs(body.prefs ?? prefs);
+					else setMsg(body.error ?? "save failed");
+				} finally {
+					setPrefsBusy(false);
+				}
+			};
 			const finishedRef = react.useRef(false);
 			const finish = react.useCallback(() => {
 				if (finishedRef.current) return;
@@ -731,6 +778,43 @@ window.__ModuleLoader__.load({
 						children: t("sp.skip")
 					}),
 					jsxRuntime.jsx("p", { className: "guide-sub", children: t("sp.sub") }),
+					jsxRuntime.jsx("h3", { className: "sp-h3", children: t("sp.prefsTitle") }),
+					jsxRuntime.jsxs("div", {
+						className: "sp-prefs",
+						children: [
+							jsxRuntime.jsxs("label", {
+								className: "sp-pref",
+								children: [
+									jsxRuntime.jsx("input", {
+										type: "checkbox",
+										checked: prefs.zhReply === true,
+										disabled: prefsBusy,
+										onChange: (event) => void savePref({ zhReply: event.target.checked })
+									}),
+									jsxRuntime.jsx("span", { children: t("sp.zhReply") })
+								]
+							}),
+							jsxRuntime.jsxs("label", {
+								className: "sp-pref",
+								children: [
+									jsxRuntime.jsx("span", { children: t("sp.effort") }),
+									jsxRuntime.jsx("select", {
+										className: "wiz-input sp-effort",
+										value: prefs.reasoningEffort ?? "high",
+										disabled: prefsBusy,
+										onChange: (event) => void savePref({ reasoningEffort: event.target.value })
+									}, jsxRuntime.jsxs(react.Fragment, {
+										children: [
+											jsxRuntime.jsx("option", { value: "high", children: t("sp.effortHigh") }),
+											jsxRuntime.jsx("option", { value: "low", children: t("sp.effortLow") }),
+											jsxRuntime.jsx("option", { value: "max", children: t("sp.effortMax") }),
+											jsxRuntime.jsx("option", { value: "off", children: t("sp.effortOff") })
+										]
+									}))
+								]
+							})
+						]
+					}),
 					jsxRuntime.jsx("h3", { className: "sp-h3", children: t("sp.personaTitle") }),
 					jsxRuntime.jsx("p", { className: "wiz-note", children: t("sp.personaHint") }),
 					jsxRuntime.jsx("textarea", {
@@ -1055,7 +1139,15 @@ window.__ModuleLoader__.load({
 			"sp.enable": "启用",
 			"sp.disable": "停用",
 			"sp.delete": "删除",
-			"sp.confirmDelete": "确认删除？"
+			"sp.confirmDelete": "确认删除？",
+			"sp.prefsTitle": "偏好",
+			"sp.zhReply": "默认中文回复（思考、回答、提问都用简体中文）",
+			"sp.effort": "推理力度（DeepSeek）",
+			"sp.effortHigh": "高（默认，思考更充分）",
+			"sp.effortLow": "低（更快）",
+			"sp.effortMax": "最大（最强推理）",
+			"sp.effortOff": "关闭（不推理，最快）",
+			"cx.turn": "回合"
 		};
 		const en = {
 			"strip.running": "Running",
@@ -1126,7 +1218,15 @@ window.__ModuleLoader__.load({
 			"sp.enable": "Enable",
 			"sp.disable": "Disable",
 			"sp.delete": "Delete",
-			"sp.confirmDelete": "Delete?"
+			"sp.confirmDelete": "Delete?",
+			"sp.prefsTitle": "Preferences",
+			"sp.zhReply": "Always reply in Simplified Chinese",
+			"sp.effort": "Reasoning effort (DeepSeek)",
+			"sp.effortHigh": "High (default, deeper thinking)",
+			"sp.effortLow": "Low (faster)",
+			"sp.effortMax": "Max (strongest)",
+			"sp.effortOff": "Off (fastest)",
+			"cx.turn": "Turn"
 		};
 
 		// ── plugin entry ───────────────────────────────────────────────────────

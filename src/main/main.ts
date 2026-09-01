@@ -15,6 +15,7 @@ import { HarnessEngineManager } from './engine-manager'
 import { assertTrustedIpcSender } from './ipc-policy'
 import { resolveLoginShellPath } from './login-shell-path'
 import { TaskNotifier } from './notify'
+import { UpdateChecker } from './update-check'
 import { installTray } from './tray'
 import { WindowController } from './window-controller'
 
@@ -129,7 +130,10 @@ async function bootApplication(): Promise<void> {
   installApplicationMenu(controller)
   await controller.create()
   if (quitRequested) return
-  installTray(controller, logPath)
+  const updater = new UpdateChecker()
+  installTray(controller, logPath, { checkUpdates: () => void updater.check(true) })
+  updater.start()
+  app.on('before-quit', () => updater.stop())
   const notifier = new TaskNotifier(engine, () => controller?.show())
   notifier.start()
   app.on('before-quit', () => notifier.stop())

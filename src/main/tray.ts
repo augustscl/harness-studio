@@ -14,7 +14,8 @@ const TRAY_PNG_16 =
 
 export function installTray(
   controller: WindowController,
-  logPath: string
+  logPath: string,
+  options: { checkUpdates?: () => void } = {}
 ): Tray {
   const isMac = process.platform === 'darwin'
   // 托盘图标必须同时提供 1x 与 2x 表示：否则 Electron 把 32px 位图当成
@@ -73,6 +74,12 @@ export function installTray(
             else void shell.openPath(dirname(logPath))
           }
         },
+        ...(options.checkUpdates !== undefined
+          ? [{
+              label: '检查更新…',
+              click: () => options.checkUpdates?.()
+            }]
+          : []),
         { type: 'separator' },
         {
           label: '退出 Harness Studio',
