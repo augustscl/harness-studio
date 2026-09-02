@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
 .cx-bar-hot{background:#f87171}
 .cx-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin:0;line-height:1.6}
 .cx-meta b{color:var(--dsw-alias-label-secondary);font-weight:600}
+.cx-balance{font-size:12px;color:var(--dsw-alias-label-secondary);margin:0 0 8px;line-height:1.6}
 .sp-card{padding:14px 0;max-height:calc(100vh - 220px);overflow-y:auto}
 .sp-skip{display:block;width:100%;margin-top:12px;padding:7px 12px}
 .sp-h3{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin:14px 0 2px}
@@ -396,6 +397,15 @@ window.__ModuleLoader__.load({
 								onChange: (event) => setQuery(event.target.value)
 							}),
 							error !== null ? jsxRuntime.jsx("p", { className: "as-err", role: "alert", children: error }) : null,
+							...(cost !== null && cost.balance !== undefined && cost.balance !== null && Array.isArray(cost.balance.infos) && cost.balance.infos.length > 0
+								? cost.balance.infos.map((info) => jsxRuntime.jsx("p", {
+									className: "cx-balance",
+									key: info.currency,
+									children: `${t("cx.balance")} ${info.currency} ${info.total}（${t("cx.granted")} ${info.granted} · ${t("cx.toppedUp")} ${info.toppedUp}）`
+								}))
+								: cost !== null && cost.balance !== undefined && cost.balance !== null && cost.balance.error !== undefined
+									? [jsxRuntime.jsx("p", { className: "wiz-note", children: `${t("cx.balance")}：${cost.balance.error}` })]
+									: []),
 							jsxRuntime.jsx("div", {
 								className: "tb-list",
 								children: (() => {
@@ -494,6 +504,7 @@ window.__ModuleLoader__.load({
 		// ── context dashboard (token / context usage per session) ──────────────
 		function ContextPanel({ t, onClose }) {
 			const [rows, setRows] = react.useState(null);
+			const [cost, setCost] = react.useState(null);
 			const [error, setError] = react.useState(null);
 
 			const refresh = react.useCallback(async () => {
@@ -504,6 +515,11 @@ window.__ModuleLoader__.load({
 				} catch (err) {
 					setError(err instanceof Error ? err.message : String(err));
 				}
+				try {
+					const cres = await fetch("/ux/cost");
+					const cbody = await cres.json();
+					if (cbody.ok === true) setCost(cbody);
+				} catch { /* ignore */ }
 			}, []);
 
 			react.useEffect(() => {
@@ -563,7 +579,13 @@ window.__ModuleLoader__.load({
 							children: [
 								"输入 ", jsxRuntime.jsx("b", { children: fmt(row.inputTokens) ?? "–" }),
 								" · 命中缓存 ", jsxRuntime.jsx("b", { children: fmt(row.cacheReadTokens) ?? "–" }),
-								" · 输出 ", jsxRuntime.jsx("b", { children: fmt(row.outputTokens) ?? "–" })
+								" · 输出 ", jsxRuntime.jsx("b", { children: fmt(row.outputTokens) ?? "–" }),
+								...(() => {
+									const c = (cost?.sessions ?? []).find((x) => x.sessionId === row.sessionId);
+									return c !== undefined && typeof c.estimatedCost === "number"
+										? [" · 约 ", jsxRuntime.jsx("b", { children: `¥${c.estimatedCost.toFixed(4)}` })]
+										: [];
+								})()
 							]
 						}),
 						...(Array.isArray(row.turns) && row.turns.length > 0
@@ -595,6 +617,13 @@ window.__ModuleLoader__.load({
 								className: "tb-head",
 								children: [
 									jsxRuntime.jsx("h2", { className: "guide-title", children: t("cx.title") }),
+									cost !== null && cost.offpeak !== undefined
+										? jsxRuntime.jsx("span", {
+											className: cost.offpeak ? "tb-badge tb-badge-paused" : "tb-badge tb-badge-active",
+											title: t("cx.offpeakHint").replace("{w}", cost.offpeakWindow ?? ""),
+											children: cost.offpeak ? t("cx.offpeak") : t("cx.peak")
+										})
+										: null,
 									jsxRuntime.jsx("button", {
 										type: "button",
 										className: "guide-btn-ghost guide-btn tb-close",
@@ -1147,7 +1176,13 @@ window.__ModuleLoader__.load({
 			"sp.effortLow": "低（更快）",
 			"sp.effortMax": "最大（最强推理）",
 			"sp.effortOff": "关闭（不推理，最快）",
-			"cx.turn": "回合"
+			"cx.turn": "回合",
+			"cx.offpeak": "低谷时段",
+			"cx.peak": "高峰时段",
+			"cx.offpeakHint": "低谷窗口 {w}，输入输出更便宜",
+			"cx.balance": "余额",
+			"cx.granted": "赠金",
+			"cx.toppedUp": "充值"
 		};
 		const en = {
 			"strip.running": "Running",
@@ -1226,7 +1261,13 @@ window.__ModuleLoader__.load({
 			"sp.effortLow": "Low (faster)",
 			"sp.effortMax": "Max (strongest)",
 			"sp.effortOff": "Off (fastest)",
-			"cx.turn": "Turn"
+			"cx.turn": "Turn",
+			"cx.offpeak": "Off-peak",
+			"cx.peak": "Peak",
+			"cx.offpeakHint": "Off-peak window {w} — cheaper input/output",
+			"cx.balance": "Balance",
+			"cx.granted": "granted",
+			"cx.toppedUp": "topped up"
 		};
 
 		// ── plugin entry ───────────────────────────────────────────────────────

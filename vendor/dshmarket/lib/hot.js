@@ -8,6 +8,8 @@
  * its input files live under `<profile>/.dsh-market/` and are wiped on every
  * boot, so a crash can never leave a file that collides with the bundle layer
  * (inserting an id the bundle layer also inserts is a hard boot failure).
+ * `state.json` in the same directory is the market's own durable state
+ * (disable list + custom groups) and deliberately survives the wipe.
  *
  * The Include subclass suppresses `write()` — the loader otherwise persists
  * tree changes back to the file it read (see dsh's agent-presets PresetTree
@@ -24,8 +26,17 @@ var __rewriteRelativeImportExtension = (this && this.__rewriteRelativeImportExte
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { asChannel } from './channels.js';
+import { asRegion } from './regions.js';
 import { logEvent } from './log.js';
 const HOT_DIR = '.dsh-market';
+/**
+ * Ceiling for one hot-mount activation, env-overridable like the install
+ * timeout in dsh-cli.ts. An activation that exceeds it is treated as wedged
+ * (typically a plugin pending on a service nothing provides) and falls back
+ * to restart activation.
+ */
+const HOT_MOUNT_TIMEOUT_MS = Number(process.env.DSH_MARKET_HOT_MOUNT_TIMEOUT_MS) || 10000;
 let hotTreeClass;
 /**
  * The Include subclass, built once per process; null when the loader's include
@@ -84,7 +95,13 @@ function readPkgDsh(profileDir, packageName) {
 export function parseSimplePatch(patchText) {
     const rows = [];
     let pending = null;
-    for (const raw of patchText.split('\n')) {
+    // Split on CRLF too. `#.*$` cannot strip a comment that ends in \r —
+    // JS treats \r as a line terminator, so `.` will not cross it and `$`
+    // only anchors at the very end — leaving the comment text in place,
+    // matching none of the row shapes, and failing the whole patch. Any
+    // plugin whose patch was authored on Windows then reads as
+    // "contains config/expression rows" and can never hot-mount.
+    for (const raw of patchText.split(/\r?\n/)) {
         const line = raw.replace(/#.*$/, '').trimEnd();
         if (line.trim() === '')
             continue;
@@ -111,7 +128,7 @@ export function parseSimplePatch(patchText) {
 }
 /**
  * Wipe leftover hot-mount inputs; call once when the market host starts.
- * `state.json` (skin enable/disable choices) deliberately survives.
+ * `state.json` (disable choices + groups) deliberately survives.
  */
 export function cleanHotDir(profileDir) {
     const dir = join(profileDir, HOT_DIR);
@@ -130,19 +147,136 @@ export function cleanHotDir(profileDir) {
 function stateFile(profileDir) {
     return join(profileDir, HOT_DIR, 'state.json');
 }
-/** Themes the user switched away from; skipped by the boot re-mount. */
-export function readDisabledThemes(profileDir) {
+/** Unique non-empty strings in `value`, order preserved. */
+function uniqueStrings(value) {
+    if (!Array.isArray(value))
+        return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of value) {
+        if (typeof item !== 'string' || item === '' || seen.has(item))
+            continue;
+        seen.add(item);
+        out.push(item);
+    }
+    return out;
+}
+/**
+ * Read the whole market state. Legacy `disabledSkins` (the pre-#60
+ * theme-only key) still loads; every new write uses the generic `disabled`
+ * key (#60).
+ */
+/** A note is a label, not a document: one line, bounded so state.json cannot
+ * grow without limit from a paste. */
+export const MAX_NOTE = 200;
+export function readMarketState(profileDir) {
     try {
         const state = JSON.parse(readFileSync(stateFile(profileDir), 'utf8'));
-        return new Set(Array.isArray(state.disabledSkins) ? state.disabledSkins : []);
+        const disabled = uniqueStrings(state.disabled !== undefined ? state.disabled : state.disabledSkins);
+        const groups = {};
+        if (state.groups !== null && typeof state.groups === 'object' && !Array.isArray(state.groups)) {
+            for (const [name, members] of Object.entries(state.groups)) {
+                groups[name] = uniqueStrings(members);
+            }
+        }
+        const notes = {};
+        if (state.notes !== null && typeof state.notes === 'object' && !Array.isArray(state.notes)) {
+            for (const [name, text] of Object.entries(state.notes)) {
+                // Empty is the same as absent: clearing a note must not leave a row
+                // claiming to carry one.
+                if (typeof text === 'string' && text.trim() !== '')
+                    notes[name] = text.slice(0, MAX_NOTE);
+            }
+        }
+        return {
+            disabled: new Set(disabled),
+            groups,
+            notes,
+            groupOrder: uniqueStrings(state.groupOrder),
+            channel: asChannel(state.channel) ?? undefined,
+            region: asRegion(state.region) ?? undefined,
+            // Only meaningful beside a region, and only when true: a stray flag
+            // with no region would promise a notice about a choice nobody made.
+            regionAuto: state.regionAuto === true && asRegion(state.region) !== null ? true : undefined,
+        };
     }
     catch {
-        return new Set();
+        return { disabled: new Set(), groups: {}, groupOrder: [], notes: {} };
     }
 }
-export function writeDisabledThemes(profileDir, disabled) {
+/**
+ * Persist the whole market state.
+ *
+ * Every field a caller does not carry forward is taken from disk rather than
+ * dropped. Several callers legitimately know about only one part of the
+ * state — `writeMarketState(dir, { disabled, groups, groupOrder })` appears
+ * at five call sites in routes.ts — and before #435 that shape silently
+ * erased whatever else the user had chosen:
+ *
+ * - `channel` and `region` had no fallback at all, so toggling any plugin
+ *   threw away the user's update channel and download region. Both are
+ *   deliberate choices made through the settings card, and neither has a
+ *   "clear it" path: once picked they only ever move to another value. So
+ *   an absent one always means "the caller has nothing to say", never
+ *   "the user unchose it".
+ * `notes` keeps its original rule — an explicit object wins, including an
+ * empty one, because deleting the last note has to be expressible. What made
+ * #435 lose notes was not this function but a caller: the note route wrote
+ * through a fresh read while the long-lived `marketState` in routes.ts still
+ * carried `notes: {}` from boot, and the next write from that object put the
+ * empty one back. The fix for that belongs at the call site, where the two
+ * copies are, not here — see the note route.
+ *
+ * Reading before writing costs one small JSON parse on an operation that is
+ * already doing filesystem work, and it is what makes "this function writes
+ * the whole document" safe for callers that only hold part of it.
+ */
+export function writeMarketState(profileDir, state) {
     mkdirSync(join(profileDir, HOT_DIR), { recursive: true, mode: 0o700 });
-    writeFileSync(stateFile(profileDir), JSON.stringify({ disabledSkins: [...disabled] }));
+    const onDisk = readMarketState(profileDir);
+    // `?? {}` only for the type: MarketState declares notes optional, while
+    // readMarketState always returns an object.
+    const notes = state.notes ?? onDisk.notes ?? {};
+    const channel = state.channel ?? onDisk.channel;
+    const region = state.region ?? onDisk.region;
+    // Unlike channel and region, regionAuto has an explicit clear path: a
+    // manual region choice owns this field and sets it to undefined. Preserve
+    // the disk value only when the caller omitted the property entirely.
+    const regionAuto = Object.prototype.hasOwnProperty.call(state, 'regionAuto')
+        ? state.regionAuto
+        : onDisk.regionAuto;
+    writeFileSync(stateFile(profileDir), JSON.stringify({
+        disabled: [...state.disabled],
+        groups: state.groups,
+        groupOrder: state.groupOrder,
+        ...(Object.keys(notes).length > 0 ? { notes } : {}),
+        // Omitted while unchosen, so "never picked" survives a round trip and
+        // keeps deriving from the running build — but only when disk has not
+        // recorded a choice either.
+        ...(channel === undefined ? {} : { channel }),
+        // Same reasoning, different consequence: an absent region is what makes
+        // the probe run, so writing a default here would mean it never does.
+        ...(region === undefined ? {} : { region }),
+        ...(regionAuto === true ? { regionAuto: true } : {}),
+    }));
+}
+/** Plugins the user switched off; skipped by the boot re-mount. */
+export function readDisabled(profileDir) {
+    return readMarketState(profileDir).disabled;
+}
+/** Persist just the disable list, preserving groups and order. */
+export function writeDisabled(profileDir, disabled) {
+    const state = readMarketState(profileDir);
+    state.disabled = new Set(disabled);
+    writeMarketState(profileDir, state);
+}
+/** @deprecated theme-specific alias — kept for pre-#60 callers. */
+export function readDisabledThemes(profileDir) {
+    return readDisabled(profileDir);
+}
+/** @deprecated theme-specific alias — kept for pre-#60 callers. */
+export function writeDisabledThemes(profileDir, disabled) {
+    writeDisabled(profileDir, disabled);
 }
 /** Package names currently live through a market hot mount (patch or shim). */
 export function listHotMounts() {
@@ -150,6 +284,22 @@ export function listHotMounts() {
 }
 let hotSequence = 0;
 const hotHandles = new Map();
+/** Activation did not settle within HOT_MOUNT_TIMEOUT_MS. */
+class ActivationTimeout extends Error {
+}
+/**
+ * Race an activation awaitable against the hot-mount ceiling. The handlers
+ * stay attached to the original promise, so a late rejection after a timeout
+ * can never surface as an unhandled rejection.
+ */
+function raceActivationTimeout(awaitable) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(new ActivationTimeout(`activation did not settle within ${HOT_MOUNT_TIMEOUT_MS / 1000}s — the plugin may be waiting on a service that never arrives`));
+        }, HOT_MOUNT_TIMEOUT_MS);
+        Promise.resolve(awaitable).then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+    });
+}
 /**
  * Dispose a plugin hot-mounted earlier in this session, removing it from the
  * running composition immediately.
@@ -232,7 +382,23 @@ export async function hotMount(ctx, profileDir, packageName) {
             .join('');
         writeFileSync(file, yml);
         const handle = ctx.plugin(HotTree, { path: pathToFileURL(file).href });
-        await handle.await();
+        try {
+            await raceActivationTimeout(handle.await());
+        }
+        catch (error) {
+            if (error instanceof ActivationTimeout) {
+                // A wedged activation would otherwise hold this request open forever:
+                // the route's `finally { installing = false }` never runs, so every
+                // later install/update/uninstall gets 409'd until a host restart.
+                // Unwind the half-mounted subtree best-effort; disposal never blocks
+                // the reply, and the caller falls back to restart activation.
+                try {
+                    Promise.resolve(handle.dispose()).catch(() => { });
+                }
+                catch { /* best effort */ }
+            }
+            throw error;
+        }
         hotHandles.set(packageName, handle);
         ctx.logger?.info?.(`[dsh-market] hot-mounted ${packageName}`);
         logEvent('info', 'hot-mount', `${packageName}: live${shimNames.has(packageName) ? ' (client-only shim)' : ''}`);
@@ -262,7 +428,7 @@ export async function mountClientOnlyDeps(ctx, profileDir) {
     catch {
         return [];
     }
-    const disabled = readDisabledThemes(profileDir);
+    const disabled = readDisabled(profileDir);
     const userManaged = readUserPatchControls(profileDir);
     const mounted = [];
     for (const name of deps) {
@@ -293,7 +459,7 @@ export function readUserPatchControls(profileDir) {
     const names = new Set();
     try {
         const text = readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8');
-        for (const line of text.split('\n')) {
+        for (const line of text.split(/\r?\n/)) {
             const id = /^\s*-?\s*id:\s*['"]?([A-Za-z0-9._/@-]+)/.exec(line);
             if (id !== null)
                 ids.add(id[1]);
@@ -313,4 +479,23 @@ export function readUserPatchControls(profileDir) {
 export function patchLayerManages(controls, name) {
     const rowId = name.replace(/^@/, '').replace(/[^a-z0-9-]/gi, '-').toLowerCase();
     return controls.ids.has(rowId) || controls.names.has(name);
+}
+/**
+ * Delete the market's own state directory.
+ *
+ * `cleanHotDir` wipes the ephemeral hot-mount inputs on every boot but
+ * deliberately preserves `state.json` — the disable list and custom groups
+ * are the user's durable choices. Uninstalling the market is the one moment
+ * where removing them is the right thing, and only when the user asked.
+ * @returns true when a directory was there to remove.
+ */
+export function purgeMarketState(profileDir) {
+    const dir = join(profileDir, HOT_DIR);
+    try {
+        rmSync(dir, { recursive: true, force: true });
+        return true;
+    }
+    catch {
+        return false;
+    }
 }

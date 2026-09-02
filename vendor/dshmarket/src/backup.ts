@@ -49,7 +49,12 @@ export interface ProfileBackup {
 function profileFiles(root: string, dir = root): string[] {
   const files: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_NAMES.has(entry.name) || /\.bak-\d+$/.test(entry.name)) continue
+    // Any .bak marker, not just the numeric-suffixed one this codebase
+    // writes. Recovery and the host's own repair paths leave other shapes —
+    // `package.json.bak-asm`, `cordis.patch.yml.rp-merged.bak` — and a
+    // backup that carried them restored them too, so the profile came back
+    // with the wreckage that made it need repairing (#205 by @Rudyy898).
+    if (SKIP_NAMES.has(entry.name) || /\.bak\b/.test(entry.name)) continue
     const path = resolve(dir, entry.name)
     if (entry.isSymbolicLink()) continue
     if (entry.isDirectory()) files.push(...profileFiles(root, path))
@@ -60,8 +65,65 @@ function profileFiles(root: string, dir = root): string[] {
 }
 
 /** Serialize every profile file except dependencies, lock state, and market cache. */
-export function createProfileBackup(profile: string, explicitDir?: string): ProfileBackup {
+export interface BackupOptions {
+  /** Partial export: only these plugins (dependency names) are kept. */
+  includeDeps?: string[]
+  /**
+   * With includeDeps, also carry the profile's other configuration files.
+   * Config files are profile-scoped and cannot be attributed to individual
+   * plugins, so this is all-or-nothing — the UI warns about secrets before
+   * enabling it (the backup itself is one-to-one, never masked).
+   */
+  includeConfig?: boolean
+}
+
+/**
+ * Serialize every profile file except dependencies, lock state, and market
+ * cache — or, with {@link BackupOptions.includeDeps}, only the manifest with
+ * the selected plugins (plus, optionally, the other config files).
+ */
+export function createProfileBackup(profile: string, explicitDir?: string, opts?: BackupOptions): ProfileBackup {
   const root = resolve(explicitDir ?? profileDir(profile))
+  const manifestFile = resolve(root, 'package.json')
+  if (!existsSync(manifestFile)) throw new Error('profile package.json is missing')
+  const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>
+
+  if (opts?.includeDeps !== undefined) {
+    const include = new Set(opts.includeDeps)
+    if (include.size === 0) throw new Error('no plugins selected')
+    const dependencies = manifest.dependencies === null || typeof manifest.dependencies !== 'object' || Array.isArray(manifest.dependencies)
+      ? {}
+      : manifest.dependencies as Record<string, unknown>
+    const filteredDeps: Record<string, unknown> = {}
+    for (const [name, spec] of Object.entries(dependencies)) if (include.has(name)) filteredDeps[name] = spec
+    const dsh = manifest.dsh === null || typeof manifest.dsh !== 'object' || Array.isArray(manifest.dsh)
+      ? undefined
+      : manifest.dsh as { profile?: unknown }
+    const profileBlock = dsh?.profile === null || typeof dsh?.profile !== 'object' || Array.isArray(dsh?.profile)
+      ? undefined
+      : dsh.profile as { bundles?: unknown }
+    const bundles = Array.isArray(profileBlock?.bundles) ? profileBlock.bundles as unknown[] : []
+    const filteredBundles = bundles.filter((name): name is string => typeof name === 'string' && include.has(name))
+    if (Object.keys(filteredDeps).length === 0 && filteredBundles.length === 0) {
+      throw new Error('none of the selected plugins are in this profile')
+    }
+    const filteredManifest: Record<string, unknown> = { ...manifest }
+    filteredManifest.dependencies = filteredDeps
+    if (dsh !== undefined) {
+      filteredManifest.dsh = { ...dsh, profile: { ...(profileBlock ?? {}), bundles: filteredBundles } }
+    }
+    const files: BackupFile[] = [{ path: 'package.json', json: filteredManifest }]
+    if (opts.includeConfig === true) {
+      for (const path of profileFiles(root).sort()) {
+        if (path === 'package.json') continue
+        files.push({ path, lines: readFileSync(resolve(root, path), 'utf8').split(/\r?\n/) })
+      }
+    }
+    const partial: ProfileBackup = { format: BACKUP_FORMAT, version: 0.2, createdAt: new Date().toISOString(), profile, files }
+    if (Buffer.byteLength(JSON.stringify(partial)) > MAX_BACKUP_BYTES) throw new Error('profile configuration is too large to back up')
+    return partial
+  }
+
   const files: BackupFile[] = profileFiles(root).sort().map((path) => {
     const content = readFileSync(resolve(root, path), 'utf8')
     return path === 'package.json'
@@ -74,7 +136,7 @@ export function createProfileBackup(profile: string, explicitDir?: string): Prof
   return backup
 }
 
-function validatedBackup(value: unknown): ProfileBackup {
+export function validatedBackup(value: unknown): ProfileBackup {
   if (value === null || typeof value !== 'object') throw new Error('invalid backup')
   const backup = value as Partial<ProfileBackup>
   if (backup.format !== BACKUP_FORMAT || backup.version !== 0.2 || !Array.isArray(backup.files)) {
@@ -170,7 +232,7 @@ async function webdavRequest(
   url: string,
   username: string,
   password: string,
-  method: 'GET' | 'PUT',
+  method: 'GET' | 'PUT' | 'MKCOL',
   body?: string,
 ): Promise<WebdavResponse> {
   const parsed = new URL(url)
@@ -231,9 +293,48 @@ async function webdavRequest(
   })
 }
 
+/**
+ * Ancestor collection URLs of a WebDAV file, outermost first.
+ * `https://dav.example/a/b/x.json` → [`https://dav.example/a/`, `https://dav.example/a/b/`].
+ * The server root itself is never included — it always exists, and some
+ * providers reject MKCOL on it.
+ */
+export function webdavParentCollections(url: string): string[] {
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return [] }
+  const parts = parsed.pathname.split('/').filter(part => part !== '')
+  parts.pop() // the file itself
+  const collections: string[] = []
+  let path = ''
+  for (const part of parts) {
+    path += `/${part}`
+    collections.push(`${parsed.origin}${path}/`)
+  }
+  return collections
+}
+
+/**
+ * Upload the backup, creating missing parent collections first (#102).
+ *
+ * WebDAV servers do not create intermediate collections implicitly, so a PUT
+ * into a folder that does not exist yet fails — Jianguoyun answers 404, which
+ * read as "sync is broken" rather than "make the folder first". MKCOL on an
+ * existing collection answers 405, which is success for our purposes; any
+ * other failure is left to the PUT to report, since some providers restrict
+ * MKCOL while still accepting the upload.
+ */
 export async function uploadWebdav(url: string, username: string, password: string, backup: ProfileBackup): Promise<void> {
+  for (const collection of webdavParentCollections(url)) {
+    try {
+      await webdavRequest(collection, username, password, 'MKCOL')
+    } catch { /* fall through: the PUT below reports the real problem */ }
+  }
   const response = await webdavRequest(url, username, password, 'PUT', JSON.stringify(backup))
-  if (response.status < 200 || response.status >= 300) throw new Error(`WebDAV upload failed: HTTP ${response.status}`)
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.status === 404
+      ? `WebDAV upload failed: HTTP 404 — the target folder does not exist and could not be created. Some providers (e.g. Jianguoyun) refuse files at the root: use a path inside a folder, e.g. https://dav.example.com/dsh/backup.json / 目标目录不存在且无法自动创建；部分服务商（如坚果云）不允许在根目录放文件，请使用形如 https://dav.example.com/dsh/backup.json 的子目录路径`
+      : `WebDAV upload failed: HTTP ${response.status}`)
+  }
 }
 
 /** Refuse non-global IPv4 targets, including metadata and carrier NAT ranges. */
@@ -302,10 +403,140 @@ export async function resolvePublicAddress(hostname: string): Promise<PublicAddr
 
 export async function downloadWebdav(url: string, username: string, password: string): Promise<unknown> {
   const response = await webdavRequest(url, username, password, 'GET')
-  if (response.status < 200 || response.status >= 300) throw new Error(`WebDAV download failed: HTTP ${response.status}`)
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(response.status === 404
+      ? 'WebDAV download failed: HTTP 404 — no backup at that path yet. Upload one first, and check the URL points at the backup FILE (…/dsh/backup.json), not its folder / 该路径下还没有备份文件。请先执行一次上传，并确认地址指向备份文件本身（…/dsh/backup.json）而不是目录'
+      : `WebDAV download failed: HTTP ${response.status}`)
+  }
   // Validate strictly server-side so the fetch result is never a generic
   // echo of an internal response: restore only accepts real backups.
   const body = JSON.parse(response.body.toString('utf8')) as unknown
   validatedBackup(body)
   return body
+}
+
+export interface PluginSelection {
+  deps: Record<string, string>
+  bundles: string[]
+}
+
+/**
+ * The selected plugins' dependency specs and bundle entries from a backup's
+ * manifest. Only string specs survive — everything else in the manifest is
+ * untrusted and ignored (partial restore touches nothing but these).
+ */
+export function extractPluginSelection(backup: ProfileBackup, includeDeps: string[]): PluginSelection {
+  const manifest = backup.files.find(file => file.path === 'package.json' && 'json' in file)
+  if (manifest === undefined || !('json' in manifest)) throw new Error('backup has no package.json')
+  const include = new Set(includeDeps)
+  const json = manifest.json
+  const dependencies = json.dependencies === null || typeof json.dependencies !== 'object' || Array.isArray(json.dependencies)
+    ? {}
+    : json.dependencies as Record<string, unknown>
+  const deps: Record<string, string> = {}
+  for (const [name, spec] of Object.entries(dependencies)) {
+    if (typeof spec === 'string' && include.has(name)) deps[name] = spec
+  }
+  const dsh = json.dsh === null || typeof json.dsh !== 'object' || Array.isArray(json.dsh)
+    ? undefined
+    : json.dsh as { profile?: unknown }
+  const profileBlock = dsh?.profile === null || typeof dsh?.profile !== 'object' || Array.isArray(dsh?.profile)
+    ? undefined
+    : dsh.profile as { bundles?: unknown }
+  const bundles = Array.isArray(profileBlock?.bundles) ? profileBlock.bundles as unknown[] : []
+  return {
+    deps,
+    bundles: bundles.filter((name): name is string => typeof name === 'string' && include.has(name)),
+  }
+}
+
+/**
+ * Merge a backup's manifest into the profile's current manifest so a restore
+ * never deletes plugins the target machine already has: current deps stay,
+ * backup specs win on name conflicts; bundle lists are unioned. When
+ * `selection` is given, only the selected plugins are merged in.
+ */
+/**
+ * Dependencies whose spec points at an absolute local path — `link:/Users/…`
+ * or `file:/home/…` (#205 by @Rudyy898).
+ *
+ * These are perfectly valid on the machine that wrote them and meaningless
+ * anywhere else, so a backup carrying one restores a manifest that `pnpm
+ * install` cannot satisfy: the path does not exist on the new machine and
+ * the whole restore fails on it.
+ *
+ * Reported, NOT rewritten. Turning `link:/Users/me/dev/plugin` into
+ * something portable means deciding where those files should live and
+ * whether to carry them at all, which is a design question and not
+ * something a restore should answer on the user's behalf. Naming them lets
+ * the operator decide before the install runs — which is the part that was
+ * missing.
+ *
+ * Relative `file:./vendor/x` specs are left alone: they resolve against the
+ * profile directory, which the restore recreates, so they travel fine.
+ */
+export function unportableDeps(dependencies: unknown): Array<{ name: string; spec: string }> {
+  if (dependencies === null || typeof dependencies !== 'object' || Array.isArray(dependencies)) return []
+  const found: Array<{ name: string; spec: string }> = []
+  for (const [name, raw] of Object.entries(dependencies as Record<string, unknown>)) {
+    if (typeof raw !== 'string') continue
+    const match = /^(?:link|file):(.+)$/i.exec(raw)
+    if (match === null) continue
+    let path = match[1]
+    try { path = decodeURIComponent(path) } catch { /* keep the literal spec */ }
+    // POSIX absolute, Windows drive-letter, or UNC — every shape that names
+    // a location outside this profile.
+    if (/^\//.test(path) || /^[A-Za-z]:[\\/]/.test(path) || /^\\\\/.test(path)) found.push({ name, spec: raw })
+  }
+  return found
+}
+
+export function mergeRestoreManifest(
+  backupManifest: Record<string, unknown>,
+  current: Record<string, unknown>,
+  selection?: PluginSelection,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...backupManifest }
+  const backupDeps = backupManifest.dependencies === null || typeof backupManifest.dependencies !== 'object' || Array.isArray(backupManifest.dependencies)
+    ? {}
+    : backupManifest.dependencies as Record<string, unknown>
+  const backupBundles = Array.isArray((backupManifest.dsh as { profile?: { bundles?: unknown } } | undefined)?.profile?.bundles)
+    ? ((backupManifest.dsh as { profile: { bundles: unknown[] } }).profile.bundles)
+    : []
+  const currentDeps = current.dependencies === null || typeof current.dependencies !== 'object' || Array.isArray(current.dependencies)
+    ? {}
+    : current.dependencies as Record<string, unknown>
+  const currentBundles = Array.isArray((current.dsh as { profile?: { bundles?: unknown } } | undefined)?.profile?.bundles)
+    ? ((current.dsh as { profile: { bundles: unknown[] } }).profile.bundles)
+    : []
+
+  // Deps: keep the target's, overlay the backup's (or only the selection).
+  const deps: Record<string, unknown> = { ...currentDeps }
+  const sourceDeps = selection !== undefined ? selection.deps : backupDeps
+  for (const [name, spec] of Object.entries(sourceDeps)) deps[name] = spec
+  merged.dependencies = deps
+
+  // Bundles: union of target and backup (or selection), de-duplicated.
+  const bundles = new Set<string>()
+  for (const name of currentBundles) if (typeof name === 'string') bundles.add(name)
+  const sourceBundles = selection !== undefined ? selection.bundles : backupBundles
+  for (const name of sourceBundles) if (typeof name === 'string') bundles.add(name)
+
+  const currentDsh = current.dsh === null || typeof current.dsh !== 'object' || Array.isArray(current.dsh)
+    ? undefined
+    : current.dsh as { profile?: unknown }
+  const currentProfile = currentDsh?.profile === null || typeof currentDsh?.profile !== 'object' || Array.isArray(currentDsh?.profile)
+    ? undefined
+    : currentDsh.profile as Record<string, unknown>
+  const backupDsh = merged.dsh === null || typeof merged.dsh !== 'object' || Array.isArray(merged.dsh)
+    ? undefined
+    : merged.dsh as { profile?: unknown }
+  const backupProfile = backupDsh?.profile === null || typeof backupDsh?.profile !== 'object' || Array.isArray(backupDsh?.profile)
+    ? undefined
+    : backupDsh.profile as Record<string, unknown>
+
+  const profileMerged: Record<string, unknown> = { ...(backupProfile ?? {}), ...(currentProfile ?? {}), bundles: [...bundles] }
+  const dshMerged: Record<string, unknown> = { ...(backupDsh ?? {}), ...(currentDsh ?? {}), profile: profileMerged }
+  merged.dsh = dshMerged
+  return merged
 }

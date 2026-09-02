@@ -5,8 +5,8 @@
  * persisted across restarts.
  */
 
-import { loadRegistry } from './registry.ts'
-import { hotMount, hotUnmount, listHotMounts, writeDisabledThemes } from './hot.ts'
+import { loadRegistry, pluginCategories } from './registry.ts'
+import { hotMount, hotUnmount, listHotMounts, writeDisabled } from './hot.ts'
 import { logEvent } from './log.ts'
 import { profileDir, readInstalled } from './profile.ts'
 import { repoOf } from './sources.ts'
@@ -47,8 +47,8 @@ export function createThemeManager(
   async function installedThemeNames(): Promise<Set<string>> {
     const names = new Set<string>()
     try {
-      const { registry } = await loadRegistry()
-      const themeEntries = registry.plugins.filter(p => p.category === 'theme')
+      const registry = await loadRegistry()
+      const themeEntries = registry.plugins.filter(p => pluginCategories(p).includes('theme'))
       const themeNames = new Set(themeEntries.map(p => p.name))
       const themeRepos = new Set(
         themeEntries.map(p => repoOf(p.url)).filter((r): r is string => r !== null).map(r => r.toLowerCase()),
@@ -115,7 +115,7 @@ export function createThemeManager(
       }
     }
     disabledThemes.delete(name)
-    writeDisabledThemes(activeProfileDir, disabledThemes)
+    writeDisabled(activeProfileDir, disabledThemes)
     if (listHotMounts().includes(name)) return true
     if (await setEntryDisabled(name, false)) return true
     return (await hotMount(host, activeProfileDir, name)).ok

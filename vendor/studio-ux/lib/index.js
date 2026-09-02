@@ -125,7 +125,8 @@ export class StudioUxService extends Service {
             : filePath.toLowerCase().endsWith(".gif") ? "image/gif"
             : "image/jpeg";
           const b64 = readFileSync(filePath).toString("base64");
-          const apiKey = await this.ctx.credentials.get("DEEPSEEK_API_KEY");
+          const resolved = await this.ctx.credentials.resolve("DEEPSEEK_API_KEY");
+      const apiKey = typeof resolved?.value === "string" ? resolved.value : "";
           if (typeof apiKey !== "string" || apiKey === "") {
             return { content: "describe_image: 未配置 DeepSeek API Key，无法调用视觉模型。请在 设置 → Models 配置 DEEPSEEK_API_KEY 后重试 / no DEEPSEEK_API_KEY configured" };
           }
@@ -536,6 +537,123 @@ export class StudioUxService extends Service {
     return { ok: true, prefs: { ...current, ...next } };
   }
 
+  // DeepSeek 参考价目表（元/百万 tokens；以官方公布为准，可在界面查看说明）。
+  // 2026-05 官方永久降价 + 峰谷定价：低谷时段（北京时间 00:30–08:30）
+  // deepseek-chat 输入/输出半价、deepseek-reasoner 2.5 折。
+  PRICES = {
+    chat: { peak: { input: 2, cache: 0.5, output: 8 }, offpeak: { input: 1, cache: 0.25, output: 4 } },
+    reasoner: { peak: { input: 4, cache: 1, output: 16 }, offpeak: { input: 1, cache: 0.25, output: 4 } }
+  };
+
+  #beijingNow() {
+    const now = new Date(Date.now() + 8 * 3600 * 1000);
+    return {
+      hour: now.getUTCHours(),
+      minute: now.getUTCMinutes(),
+      day: now.getUTCDate()
+    };
+  }
+
+  /** 是否处于低谷窗口（北京时间 00:30–08:30）。 */
+  #isOffPeak() {
+    const { hour, minute } = this.#beijingNow();
+    const t = hour * 60 + minute;
+    return t >= 30 && t < 510;
+  }
+
+  #activeModelKind() {
+    try {
+      const descriptors = this.ctx.settings.describe();
+      const active = descriptors.find((item) => item.ns === "agent-default-model");
+      const model = String(active?.value?.model ?? "").toLowerCase();
+      return model.includes("reasoner") ? "reasoner" : "chat";
+    } catch {
+      return "chat";
+    }
+  }
+
+  /** 会话费用估算（参考价）。 */
+  #sessionCost(kind, usage) {
+    const offpeak = this.#isOffPeak();
+    const table = (this.PRICES[kind] ?? this.PRICES.chat)[offpeak ? "offpeak" : "peak"];
+    const input = (usage?.uncachedInputTokens ?? 0) / 1e6 * table.input;
+    const cache = (usage?.cacheReadTokens ?? 0) / 1e6 * table.cache;
+    const output = (usage?.outputTokens ?? 0) / 1e6 * table.output;
+    return { estimated: Number((input + cache + output).toFixed(4)), offpeak };
+  }
+
+  #balanceCache = null;
+  #balanceFetchedAt = 0;
+
+  async #balance() {
+    if (this.#balanceCache !== null && Date.now() - this.#balanceFetchedAt < 5 * 60 * 1000) {
+      return this.#balanceCache;
+    }
+    try {
+      const resolved = await this.ctx.credentials.resolve("DEEPSEEK_API_KEY");
+      const apiKey = typeof resolved?.value === "string" ? resolved.value : "";
+      if (typeof apiKey !== "string" || apiKey === "") {
+        this.#balanceCache = { error: "未配置 DeepSeek API Key" };
+        this.#balanceFetchedAt = Date.now();
+        return this.#balanceCache;
+      }
+      const res = await fetch("https://api.deepseek.com/user/balance", {
+        headers: { authorization: `Bearer ${apiKey}` }
+      });
+      if (!res.ok) {
+        this.#balanceCache = { error: `HTTP ${res.status}` };
+        this.#balanceFetchedAt = Date.now();
+        return this.#balanceCache;
+      }
+      const body = await res.json();
+      const infos = Array.isArray(body?.balance_infos) ? body.balance_infos : [];
+      this.#balanceCache = {
+        available: body?.is_available === true,
+        infos: infos.map((info) => ({
+          currency: info.currency ?? "CNY",
+          total: info.total_balance ?? "0",
+          granted: info.granted_balance ?? "0",
+          toppedUp: info.topped_up_balance ?? "0"
+        }))
+      };
+      this.#balanceFetchedAt = Date.now();
+      return this.#balanceCache;
+    } catch (error) {
+      this.#balanceCache = { error: String(error?.message ?? error) };
+      this.#balanceFetchedAt = Date.now();
+      return this.#balanceCache;
+    }
+  }
+
+  async #cost() {
+    const kind = this.#activeModelKind();
+    const offpeak = this.#isOffPeak();
+    const table = this.PRICES[kind];
+    const rows = this.#snapshots().map((sess) => {
+      const u = sess.usage.tokenUsage;
+      if (u === null) return null;
+      const cost = this.#sessionCost(kind, u);
+      return {
+        sessionId: sess.sessionId,
+        title: sess.title,
+        inputTokens: u.uncachedInputTokens ?? 0,
+        cacheReadTokens: u.cacheReadTokens ?? 0,
+        outputTokens: u.outputTokens ?? 0,
+        estimatedCost: cost.estimated
+      };
+    }).filter((row) => row !== null);
+    rows.sort((a, b) => b.estimatedCost - a.estimatedCost);
+    return {
+      ok: true,
+      balance: await this.#balance(),
+      offpeak,
+      offpeakWindow: "00:30–08:30（北京时间）",
+      kind,
+      prices: table,
+      sessions: rows.slice(0, 50)
+    };
+  }
+
   async #state() {
     let seen = false;
     try {
@@ -631,6 +749,14 @@ export class StudioUxService extends Service {
           } catch (error) {
             sendJson(res, 400, { ok: false, error: String(error?.message ?? error) });
           }
+          return;
+        }
+        sendJson(res, 405, { ok: false, error: "method not allowed" });
+        return;
+      }
+      if (parts[1] === "cost") {
+        if (req.method === "GET" || req.method === "HEAD") {
+          sendJson(res, 200, await this.#cost());
           return;
         }
         sendJson(res, 405, { ok: false, error: "method not allowed" });

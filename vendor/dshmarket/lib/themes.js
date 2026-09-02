@@ -4,8 +4,8 @@
  * the loader, and keeping exactly one theme active with the choice
  * persisted across restarts.
  */
-import { loadRegistry } from './registry.js';
-import { hotMount, hotUnmount, listHotMounts, writeDisabledThemes } from './hot.js';
+import { loadRegistry, pluginCategories } from './registry.js';
+import { hotMount, hotUnmount, listHotMounts, writeDisabled } from './hot.js';
 import { logEvent } from './log.js';
 import { profileDir, readInstalled } from './profile.js';
 import { repoOf } from './sources.js';
@@ -20,8 +20,8 @@ export function createThemeManager(host, profile, disabledThemes, explicitDir) {
     async function installedThemeNames() {
         const names = new Set();
         try {
-            const { registry } = await loadRegistry();
-            const themeEntries = registry.plugins.filter(p => p.category === 'theme');
+            const registry = await loadRegistry();
+            const themeEntries = registry.plugins.filter(p => pluginCategories(p).includes('theme'));
             const themeNames = new Set(themeEntries.map(p => p.name));
             const themeRepos = new Set(themeEntries.map(p => repoOf(p.url)).filter((r) => r !== null).map(r => r.toLowerCase()));
             for (const [name, spec] of Object.entries(readInstalled(profile, activeProfileDir))) {
@@ -91,7 +91,7 @@ export function createThemeManager(host, profile, disabledThemes, explicitDir) {
             }
         }
         disabledThemes.delete(name);
-        writeDisabledThemes(activeProfileDir, disabledThemes);
+        writeDisabled(activeProfileDir, disabledThemes);
         if (listHotMounts().includes(name))
             return true;
         if (await setEntryDisabled(name, false))
