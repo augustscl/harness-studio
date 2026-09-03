@@ -262,7 +262,11 @@ export class StudioUxService extends Service {
         const turns = [];
         try {
           const buckets = new Map();
-          for (const event of session.events ?? []) {
+          // rc.1 起 Session.events 被 snapshotEvents() 取代；保留旧访问器兜底。
+          const sessionEvents = typeof session.snapshotEvents === "function"
+            ? session.snapshotEvents()
+            : (session.events ?? []);
+          for (const event of sessionEvents) {
             let turn;
             let step;
             let usage;
