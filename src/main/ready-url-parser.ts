@@ -1,6 +1,8 @@
 import { StringDecoder } from 'node:string_decoder'
 
-const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:(?:[1-9]\d{0,4}))$/u
+// rc.1 起 ready 行可能是 `dsh web: http://127.0.0.1:<port>/?token=…`：
+// 正则必须容忍可选的 token 查询串（整行捕获，视图需要带 token 访问）。
+const READY_LINE = /^dsh web: (http:\/\/127\.0\.0\.1:(?:[1-9]\d{0,4})(?:\/\?[^\s]*)?)$/u
 
 export class ReadyUrlParser {
   readonly #decoder = new StringDecoder('utf8')

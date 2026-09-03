@@ -23,6 +23,8 @@ export class TaskNotifier {
   readonly #showWindow: () => void
   #known = new Map<string, string>()
   #timer: NodeJS.Timeout | undefined
+  #cookie: string | undefined
+  #cookieForUrl: string | undefined
 
   constructor(engine: HarnessEngineManager, showWindow: () => void) {
     this.#engine = engine
@@ -40,12 +42,49 @@ export class TaskNotifier {
     this.#timer = undefined
   }
 
+  /**
+   * rc.1 起引擎 API 需要 token→Cookie 鉴权：访问一次 ready URL
+   * （/?token=…）取 303 下发的 Set-Cookie，后续轮询带上它。
+   */
+  async #ensureCookie(baseUrl: string): Promise<string | undefined> {
+    if (this.#cookie !== undefined && this.#cookieForUrl === baseUrl) {
+      return this.#cookie
+    }
+    try {
+      const res = await fetch(baseUrl, { redirect: 'manual' })
+      const setCookie = res.headers.get('set-cookie')
+      if (setCookie === null) return undefined
+      const pair = setCookie.split(';')[0]
+      if (pair === undefined || pair === '' || !pair.includes('=')) return undefined
+      this.#cookie = pair
+      this.#cookieForUrl = baseUrl
+      return pair
+    } catch {
+      return undefined
+    }
+  }
+
   async #poll(): Promise<void> {
     const state = this.#engine.getState()
     if (state.phase !== 'ready' || !state.url) return
-    let tasks: GoalTask[] = []
+    // ready URL 形如 http://127.0.0.1:<port>/?token=…，API 基址取 origin+path。
+    let base
     try {
-      const res = await fetch(`${state.url}/ux/tasks`)
+      const parsed = new URL(state.url)
+      base = `${parsed.origin}${parsed.pathname}`
+    } catch {
+      return
+    }
+    let tasks: GoalTask[] = []
+    const cookie = await this.#ensureCookie(base)
+    try {
+      const res = await fetch(`${base}ux/tasks`, {
+        headers: cookie !== undefined ? { cookie } : {}
+      })
+      if (res.status === 401) {
+        this.#cookie = undefined
+        return
+      }
       if (!res.ok) return
       const body = (await res.json()) as { ok?: boolean; tasks?: GoalTask[] }
       if (body.ok !== true || !Array.isArray(body.tasks)) return
